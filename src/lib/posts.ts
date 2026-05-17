@@ -11,6 +11,15 @@ export interface Post {
 
 export const ALL_POSTS: Post[] = [
   {
+    slug: "el-nino-y-su-impacto-en-panama",
+    title: "El Fenómeno de El Niño en Panamá: Sequía, Incendios y Riesgo Alimentario",
+    date: "17 de Mayo, 2026",
+    readTime: "9 min",
+    excerpt: "El Niño amenaza a Panamá con sequías extremas, incendios forestales y crisis alimentaria. Analizamos los eventos históricos de 1997, 2015 y 2023, y cómo prepararse para el próximo ciclo.",
+    category: "Geografía",
+    tags: ["Clima", "El Niño", "Sequía", "Panamá", "Incendios"],
+  },
+  {
     slug: "microclimas-y-riesgos-en-panama",
     title: "Microclimas y Riesgos en Panamá: Por qué el Istmo es Propenso a Desastres",
     date: "12 de Mayo, 2026",
