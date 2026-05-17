@@ -12,11 +12,11 @@ interface GoesLayer {
   id: string;
   label: string;
   desc: string;
-  layer: string;
-  baseUrl: string;
-  style: string;
+  tip: string;
+  url: string;
   icon: string;
   opacity: number;
+  attribution: string;
 }
 
 interface OpenMeteoCurrent {
@@ -53,21 +53,37 @@ interface CacheEntry {
   ts: number;
 }
 
-const getLatestGoesTime = () => {
-  const now = new Date();
-  const date = new Date(now.getTime() - 15 * 60000);
-  const minutes = date.getMinutes();
-  const roundedMinutes = Math.floor(minutes / 5) * 5;
-  date.setMinutes(roundedMinutes);
-  date.setSeconds(0);
-  date.setMilliseconds(0);
-  return date.toISOString().split(".")[0] + "Z";
-};
-
 const GOES_LAYERS: GoesLayer[] = [
-  { id: "visible", label: "Visible", desc: "Mosaico Global Visible · 3 km", layer: "observations:global_visible_imagery_mosaic", baseUrl: "https://nowcoast.noaa.gov/geoserver/observations/satellite/ows", style: "", icon: "☀️", opacity: 0.85 },
-  { id: "infrared", label: "Infrarrojo", desc: "Mosaico Global Térmico · 3 km", layer: "observations:global_longwave_imagery_mosaic", baseUrl: "https://nowcoast.noaa.gov/geoserver/observations/satellite/ows", style: "", icon: "🌡️", opacity: 0.80 },
-  { id: "vapor", label: "Vapor de Agua", desc: "Mosaico Global Vapor · 3 km", layer: "observations:global_water_vapor_imagery_mosaic", baseUrl: "https://nowcoast.noaa.gov/geoserver/observations/satellite/ows", style: "", icon: "💧", opacity: 0.75 },
+  {
+    id: "geocolor",
+    label: "GeoColor",
+    desc: "Color verdadero · 1 km · NOAA",
+    tip: "Imagen en color verdadero similar a lo que vería el ojo humano desde el espacio. Combina canales rojo, verde y azul (visibles) para mostrar nubes, tierra y océanos con colores naturales. Útil para identificación general de nubosidad y tormentas.",
+    url: "https://satellitemaps.nesdis.noaa.gov/arcgis/rest/services/MERGED_GeoColor/ImageServer",
+    icon: "🖼️",
+    opacity: 0.85,
+    attribution: "NOAA/NESDIS",
+  },
+  {
+    id: "infrared",
+    label: "Infrarrojo",
+    desc: "Banda 13 Clean LWIR · 1 km · NOAA",
+    tip: "Banda infrarroja térmica de onda larga (10.3 μm). Mide la temperatura de las nubes y la superficie terrestre. Las nubes más altas y frías aparecen más brillantes. Fundamental para identificar tormentas severas, frentes fríos y convección profunda incluso de noche.",
+    url: "https://satellitemaps.nesdis.noaa.gov/arcgis/rest/services/ABI13_current/ImageServer",
+    icon: "🌡️",
+    opacity: 0.80,
+    attribution: "NOAA/NESDIS",
+  },
+  {
+    id: "vapor",
+    label: "Vapor de Agua",
+    desc: "Banda 10 WV · 1 km · NOAA",
+    tip: "Banda de vapor de agua (7.3 μm). Detecta la concentración de humedad en la atmósfera media. Las regiones húmedas aparecen más claras; las secas, más oscuras. Esencial para rastrear ondas tropicales, zonas de confluencia y predecir la formación de tormentas.",
+    url: "https://satellitemaps.nesdis.noaa.gov/arcgis/rest/services/ABI10_current/ImageServer",
+    icon: "💧",
+    opacity: 0.75,
+    attribution: "NOAA/NESDIS",
+  },
 ];
 
 const PANAMA_CITIES: City[] = [
@@ -228,12 +244,58 @@ function buildPopupHtml(cityName: string, d: OpenMeteoResponse): string {
 type LeafletInstance = typeof import("leaflet");
 type LeafletMap = import("leaflet").Map;
 type LeafletLayerGroup = import("leaflet").LayerGroup;
-type LeafletTileLayerWMS = import("leaflet").TileLayer.WMS;
+type LeafletTileLayer = import("leaflet").TileLayer;
+
+const ORIGIN_X = -20037508.342789244;
+const ORIGIN_Y = 20037508.342789244;
+
+function tileXYToBbox(x: number, y: number, z: number, tileSize: number) {
+  const resolution = (ORIGIN_Y * 2) / (tileSize * Math.pow(2, z));
+  return {
+    xmin: ORIGIN_X + x * tileSize * resolution,
+    ymin: ORIGIN_Y - (y + 1) * tileSize * resolution,
+    xmax: ORIGIN_X + (x + 1) * tileSize * resolution,
+    ymax: ORIGIN_Y - y * tileSize * resolution,
+  };
+}
+
+function createGoesLayer(
+  L: LeafletInstance,
+  id: string,
+  url: string,
+  maxZoom: number,
+  opacity: number
+) {
+  if (id === "geocolor") {
+    // Export endpoint — no tile cache; substitute bbox coords manually
+    const tileLayer = L.tileLayer("", { maxZoom, opacity });
+    (tileLayer as any).getTileUrl = function (coords: { x: number; y: number; z: number }) {
+      const { xmin, ymin, xmax, ymax } = tileXYToBbox(coords.x, coords.y, coords.z, 256);
+      return url
+        .replace("{xmin}", xmin.toFixed(6))
+        .replace("{ymin}", ymin.toFixed(6))
+        .replace("{xmax}", xmax.toFixed(6))
+        .replace("{ymax}", ymax.toFixed(6));
+    };
+    (tileLayer as any)._url = "";
+    return tileLayer;
+  }
+  // ABI13 and ABI10 have tile caches — Leaflet handles {z}/{y}/{x} natively
+  return L.tileLayer(url, { maxZoom, opacity });
+}
+
+function tileLayerUrl(id: string): string {
+  const service = GOES_LAYERS.find((l) => l.id === id)!;
+  if (id === "geocolor") {
+    return `${service.url}/exportImage?bbox={xmin},{ymin},{xmax},{ymax}&bboxSR=3857&imageSR=3857&size=256,256&format=png&f=image`;
+  }
+  return `${service.url}/tile/{z}/{y}/{x}`;
+}
 
 export default function GoesMap() {
   const mapRef = useRef<HTMLDivElement>(null);
   const mapInstanceRef = useRef<LeafletMap | null>(null);
-  const goesLayerRef = useRef<LeafletTileLayerWMS | null>(null);
+  const goesLayerRef = useRef<LeafletTileLayer | null>(null);
   const LRef = useRef<LeafletInstance | null>(null);
   const weatherLayerGroupRef = useRef<LeafletLayerGroup | null>(null);
   const [activeLayer, setActiveLayer] = useState<GoesLayer>(GOES_LAYERS[0]);
@@ -284,22 +346,19 @@ export default function GoesMap() {
           { maxZoom: 18, opacity: 0.7, pane: "overlayPane" }
         ).addTo(map);
 
-        const wmsTime = getLatestGoesTime();
-        const goesLayer = L.tileLayer.wms(activeLayer.baseUrl, {
-          layers: activeLayer.layer,
-          styles: activeLayer.style,
-          format: "image/png",
-          transparent: true,
-          version: "1.3.0",
-          opacity: goesOpacity,
-          attribution: "NOAA/NESDIS GOES-19",
-          time: wmsTime,
-        } as any);
-
+        const tileUrl = tileLayerUrl(activeLayer.id);
+        const goesLayer = createGoesLayer(L, activeLayer.id, tileUrl, 18, goesOpacity);
         goesLayer.addTo(map);
         goesLayerRef.current = goesLayer;
-        goesLayer.on("load", () => setIsLoading(false));
-        goesLayer.on("loading", () => setIsLoading(true));
+
+        const handleTileLoad = () => {
+          setIsLoading(false);
+        };
+        const handleTileLoading = () => {
+          setIsLoading(true);
+        };
+        goesLayer.on("load", handleTileLoad);
+        goesLayer.on("loading", handleTileLoading);
 
         L.control.zoom({ position: "bottomright" }).addTo(map);
         L.control.attribution({ position: "bottomleft", prefix: false }).addTo(map);
@@ -339,7 +398,6 @@ export default function GoesMap() {
         });
 
         new FullscreenControl().addTo(map);
-
         weatherLayerGroupRef.current = L.layerGroup().addTo(map);
       } catch (error) {
         console.error("Error al inicializar el mapa:", error);
@@ -367,22 +425,15 @@ export default function GoesMap() {
     setIsLoading(true);
     map.removeLayer(goesLayerRef.current);
 
-    const wmsTime = getLatestGoesTime();
-    const newLayer = L.tileLayer.wms(activeLayer.baseUrl, {
-      layers: activeLayer.layer,
-      styles: activeLayer.style,
-      format: "image/png",
-      transparent: true,
-      version: "1.3.0",
-      opacity: goesOpacity,
-      attribution: "NOAA/NESDIS GOES-19",
-      time: wmsTime,
-    } as any);
-
+    const tileUrl = tileLayerUrl(activeLayer.id);
+    const newLayer = createGoesLayer(L, activeLayer.id, tileUrl, 18, goesOpacity);
     newLayer.addTo(map);
     goesLayerRef.current = newLayer;
-    newLayer.on("load", () => setIsLoading(false));
-    newLayer.on("loading", () => setIsLoading(true));
+
+    const handleTileLoad = () => setIsLoading(false);
+    const handleTileLoading = () => setIsLoading(true);
+    newLayer.on("load", handleTileLoad);
+    newLayer.on("loading", handleTileLoading);
   }, [activeLayer]);
 
   useEffect(() => {
@@ -499,6 +550,7 @@ export default function GoesMap() {
             <button
               key={layer.id}
               onClick={() => { setActiveLayer(layer); setGoesOpacity(layer.opacity); }}
+              title={layer.tip}
               className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-mono transition-all ${activeLayer.id === layer.id
                   ? "bg-cyan-600 text-white border border-cyan-500 shadow-lg shadow-cyan-900/30"
                   : "bg-zinc-800 text-zinc-400 border border-zinc-700 hover:border-zinc-500 hover:text-zinc-200"
