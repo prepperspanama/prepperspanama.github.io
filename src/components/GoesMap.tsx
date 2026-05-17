@@ -307,6 +307,10 @@ export default function GoesMap() {
   const [mounted, setMounted] = useState(false);
   const [showWeather, setShowWeather] = useState(false);
   const [mapError, setMapError] = useState<string | null>(null);
+  const [refreshTick, setRefreshTick] = useState(0);
+  const goesOpacityRef = useRef(goesOpacity);
+
+  useEffect(() => { goesOpacityRef.current = goesOpacity; }, [goesOpacity]);
 
   useEffect(() => {
     /* eslint-disable react-hooks/set-state-in-effect */
@@ -315,6 +319,12 @@ export default function GoesMap() {
     setLastUpdate(now.toLocaleTimeString("es-PA", { hour: "2-digit", minute: "2-digit" }));
     /* eslint-enable react-hooks/set-state-in-effect */
   }, []);
+
+  useEffect(() => {
+    if (!mounted) return;
+    const id = setInterval(() => setRefreshTick((t) => t + 1), 5 * 60 * 1000);
+    return () => clearInterval(id);
+  }, [mounted]);
 
   useEffect(() => {
     if (!mounted || !mapRef.current || mapInstanceRef.current) return;
@@ -431,7 +441,7 @@ export default function GoesMap() {
     map.removeLayer(goesLayerRef.current);
 
     const tileUrl = tileLayerUrl(activeLayer.id);
-    const newLayer = createGoesLayer(L, activeLayer.id, tileUrl, 18, goesOpacity);
+    const newLayer = createGoesLayer(L, activeLayer.id, tileUrl, 18, goesOpacityRef.current);
     newLayer.addTo(map);
     goesLayerRef.current = newLayer;
 
@@ -439,8 +449,9 @@ export default function GoesMap() {
     const handleTileLoading = () => setIsLoading(true);
     newLayer.on("load", handleTileLoad);
     newLayer.on("loading", handleTileLoading);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeLayer]);
+
+    setLastUpdate(new Date().toLocaleTimeString("es-PA", { hour: "2-digit", minute: "2-digit" }));
+  }, [activeLayer, refreshTick]);
 
   useEffect(() => {
     if (goesLayerRef.current) {
