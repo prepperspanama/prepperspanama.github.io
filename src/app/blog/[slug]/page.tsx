@@ -1,7 +1,6 @@
 import { notFound } from "next/navigation";
 import { ALL_POSTS } from "@/lib/posts";
 import { SITE_URL } from "@/lib/constants";
-import dynamic from "next/dynamic";
 import Link from "next/link";
 import TableOfContents from "@/components/TableOfContents";
 import RelatedPosts from "@/components/RelatedPosts";
@@ -50,9 +49,7 @@ export default async function PostPage({ params }: PageProps) {
     notFound();
   }
 
-  const Content = dynamic(() => import(`../../../content/blog/${slug}.mdx`), {
-    loading: () => <div className="animate-pulse h-96 bg-zinc-900/50 rounded-3xl" />,
-  });
+  const { default: Content } = await import(`../../../content/blog/${slug}.mdx`);
 
   return (
     <article className="bg-zinc-950 min-h-screen pt-32 pb-20">

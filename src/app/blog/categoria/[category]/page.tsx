@@ -24,7 +24,7 @@ export async function generateMetadata({ params }: PageProps) {
 export default async function CategoryPage({ params }: PageProps) {
   const { category } = await params;
   const decoded = decodeURIComponent(category);
-  const posts = getPostsByCategory(decoded as any);
+  const posts = getPostsByCategory(decoded);
 
   if (posts.length === 0 && !ALL_POSTS.some((p) => p.category.toLowerCase() === decoded.toLowerCase())) {
     notFound();

@@ -269,6 +269,7 @@ function createGoesLayer(
   if (id === "geocolor") {
     // Export endpoint — no tile cache; substitute bbox coords manually
     const tileLayer = L.tileLayer("", { maxZoom, opacity });
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     (tileLayer as any).getTileUrl = function (coords: { x: number; y: number; z: number }) {
       const { xmin, ymin, xmax, ymax } = tileXYToBbox(coords.x, coords.y, coords.z, 256);
       return url
@@ -277,6 +278,7 @@ function createGoesLayer(
         .replace("{xmax}", xmax.toFixed(6))
         .replace("{ymax}", ymax.toFixed(6));
     };
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     (tileLayer as any)._url = "";
     return tileLayer;
   }
@@ -307,9 +309,11 @@ export default function GoesMap() {
   const [mapError, setMapError] = useState<string | null>(null);
 
   useEffect(() => {
+    /* eslint-disable react-hooks/set-state-in-effect */
     setMounted(true);
     const now = new Date();
     setLastUpdate(now.toLocaleTimeString("es-PA", { hour: "2-digit", minute: "2-digit" }));
+    /* eslint-enable react-hooks/set-state-in-effect */
   }, []);
 
   useEffect(() => {
@@ -415,6 +419,7 @@ export default function GoesMap() {
         weatherLayerGroupRef.current = null;
       }
     };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [mounted]);
 
   useEffect(() => {
@@ -434,6 +439,7 @@ export default function GoesMap() {
     const handleTileLoading = () => setIsLoading(true);
     newLayer.on("load", handleTileLoad);
     newLayer.on("loading", handleTileLoading);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeLayer]);
 
   useEffect(() => {

@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { ALL_POSTS, type Post } from "@/lib/posts";
+import { ALL_POSTS } from "@/lib/posts";
 
 export default function RelatedPosts({ currentSlug, tags }: { currentSlug: string; tags: string[] }) {
   const related = ALL_POSTS

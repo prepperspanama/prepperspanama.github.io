@@ -1,4 +1,3 @@
-import Link from "next/link"
 import dynamic from "next/dynamic"
 
 const QuoteSection = dynamic(() => import("@/components/HomeSections").then(mod => mod.QuoteSection), { ssr: true })

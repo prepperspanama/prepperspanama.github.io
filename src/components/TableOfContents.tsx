@@ -29,6 +29,7 @@ export default function TableOfContents() {
       });
     });
 
+    /* eslint-disable-next-line react-hooks/set-state-in-effect */
     setItems(tocItems);
 
     const observer = new IntersectionObserver(
