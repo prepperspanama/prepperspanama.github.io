@@ -37,6 +37,15 @@ export const ALL_POSTS: Post[] = [
     category: "Táctica",
     tags: ["Filosofía", "Resiliencia", "Fundamentos"],
   },
+  {
+    slug: "importancia-del-botiquin",
+    title: "La Importancia de un Botiquín de Primeros Auxilios en Panamá",
+    date: "22 de Mayo, 2026",
+    readTime: "7 min",
+    excerpt: "En un país con clima tropical, geografía accidentada y acceso limitado a salud en áreas remotas, un botiquín bien equipado puede salvar vidas. Guía completa para armarlo.",
+    category: "Salud",
+    tags: ["Salud", "Botiquín", "Primeros Auxilios", "Equipo", "Panamá"],
+  },
 ];
 
 export function getPostsByCategory(category: string) {
