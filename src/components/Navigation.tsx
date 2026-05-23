@@ -5,6 +5,7 @@ import Image from "next/image";
 import { usePathname } from "next/navigation";
 import { useState, useEffect, useRef } from "react";
 import logo from "../../public/logo.webp";
+import SearchBar from "./SearchBar";
 
 export default function Navigation() {
   const pathname = usePathname();
@@ -144,6 +145,8 @@ export default function Navigation() {
                 ))}
               </ul>
 
+              <SearchBar />
+
               <button
                 onClick={() => setTacticalMode(!tacticalMode)}
                 className={`px-3 py-1.5 rounded border text-xs font-mono transition-all ${
@@ -217,6 +220,9 @@ export default function Navigation() {
         }`}
       >
         <div className="p-6 flex flex-col gap-2 flex-grow">
+          <div className="mb-4">
+            <SearchBar />
+          </div>
           <p className="text-zinc-400 text-xs font-mono uppercase tracking-widest mb-4">
             Navegación
           </p>

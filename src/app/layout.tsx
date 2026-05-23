@@ -65,9 +65,10 @@ export default function RootLayout({
         {/* Security Headers (Meta Tag implementations for Static Sites) */}
         <meta
           httpEquiv="Content-Security-Policy"
-          content="default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https://server.arcgisonline.com https://nowcoast.noaa.gov https://unpkg.com https://satellitemaps.nesdis.noaa.gov; font-src 'self' data:; connect-src 'self' https://api.open-meteo.com; object-src 'none'; base-uri 'self'; frame-src 'none'; frame-ancestors 'none'; form-action 'self';"
+          content="default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval' https://cloud.umami.is; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https://server.arcgisonline.com https://nowcoast.noaa.gov https://unpkg.com https://satellitemaps.nesdis.noaa.gov; font-src 'self' data:; connect-src 'self' https://api.open-meteo.com https://cloud.umami.is; object-src 'none'; base-uri 'self'; frame-src 'none'; frame-ancestors 'none'; form-action 'self';"
         />
         <meta name="referrer" content="strict-origin-when-cross-origin" />
+        <script defer src="https://cloud.umami.is/script.js" data-website-id="91fd4640-1243-4498-9645-263f5c1ee5dd"></script>
       </head>
       <body className="min-h-full flex flex-col bg-zinc-950 text-zinc-100">
         <a
