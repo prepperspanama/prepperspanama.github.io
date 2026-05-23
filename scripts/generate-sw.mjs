@@ -1,12 +1,22 @@
-const CACHE_NAME = 'preppers-panama-v2';
+import { readFileSync, readdirSync, writeFileSync } from "fs";
+import { join } from "path";
+
+function loadAllSlugs() {
+  const contentDir = join(process.cwd(), "src/content/blog");
+  const files = readdirSync(contentDir).filter((f) => f.endsWith(".mdx"));
+  return files.map((f) => f.replace(/\.mdx$/, ""));
+}
+
+const slugs = loadAllSlugs();
+
+const postUrls = slugs.map((slug) => `  '/blog/${slug}/'`).join(",\n");
+
+const sw = `const CACHE_NAME = 'preppers-panama-v2';
 const STATIC_ASSETS = [
   '/',
   '/blog/',
   '/mapa/',
-  '/blog/el-nino-y-su-impacto-en-panama/',
-  '/blog/importancia-del-botiquin/',
-  '/blog/microclimas-y-riesgos-en-panama/',
-  '/blog/que-es-ser-prepper/',
+${postUrls},
 ];
 
 self.addEventListener('install', (event) => {
@@ -58,3 +68,7 @@ self.addEventListener('fetch', (event) => {
     })
   );
 });
+`;
+
+writeFileSync(join(process.cwd(), "public", "sw.js"), sw, "utf-8");
+console.log(`✓ SW generated at public/sw.js (${slugs.length} posts)`);

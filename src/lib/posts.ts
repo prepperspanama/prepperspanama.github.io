@@ -1,7 +1,11 @@
+import fs from "fs";
+import path from "path";
+
 export interface Post {
   slug: string;
   title: string;
   date: string;
+  dateISO: string;
   readTime: string;
   excerpt: string;
   category: "Tecnología" | "Equipo" | "Salud" | "Táctica" | "Geografía";
@@ -9,44 +13,43 @@ export interface Post {
   ogImage?: string;
 }
 
-export const ALL_POSTS: Post[] = [
-  {
-    slug: "el-nino-y-su-impacto-en-panama",
-    title: "El Fenómeno de El Niño en Panamá: Sequía, Incendios y Riesgo Alimentario",
-    date: "17 de Mayo, 2026",
-    readTime: "9 min",
-    excerpt: "El Niño amenaza a Panamá con sequías extremas, incendios forestales y crisis alimentaria. Analizamos los eventos históricos de 1997, 2015 y 2023, y cómo prepararse para el próximo ciclo.",
-    category: "Geografía",
-    tags: ["Clima", "El Niño", "Sequía", "Panamá", "Incendios"],
-  },
-  {
-    slug: "microclimas-y-riesgos-en-panama",
-    title: "Microclimas y Riesgos en Panamá: Por qué el Istmo es Propenso a Desastres",
-    date: "12 de Mayo, 2026",
-    readTime: "8 min",
-    excerpt: "Panamá es un laboratorio climático de 75,517 km². Analizamos sus 8 microclimas, la matriz de riesgos por provincia y por qué el Istmo ya no es una zona libre de desastres.",
-    category: "Geografía",
-    tags: ["Clima", "Riesgos", "Panamá", "Desastres"],
-  },
-  {
-    slug: "que-es-ser-prepper",
-    title: "¿Qué es ser Prepper? Más allá de los mitos del fin del mundo",
-    date: "11 de Mayo, 2026",
-    readTime: "10 min",
-    excerpt: "El preparacionismo no es paranoia, es responsabilidad. Analizamos la filosofía prepper y por qué es vital en el siglo XXI.",
-    category: "Táctica",
-    tags: ["Filosofía", "Resiliencia", "Fundamentos"],
-  },
-  {
-    slug: "importancia-del-botiquin",
-    title: "La Importancia de un Botiquín de Primeros Auxilios en Panamá",
-    date: "22 de Mayo, 2026",
-    readTime: "7 min",
-    excerpt: "En un país con clima tropical, geografía accidentada y acceso limitado a salud en áreas remotas, un botiquín bien equipado puede salvar vidas. Guía completa para armarlo.",
-    category: "Salud",
-    tags: ["Salud", "Botiquín", "Primeros Auxilios", "Equipo", "Panamá"],
-  },
-];
+function loadAllPosts(): Post[] {
+  const contentDir = path.join(process.cwd(), "src/content/blog");
+  const files = fs.readdirSync(contentDir).filter((f) => f.endsWith(".mdx"));
+
+  const posts = files.map((file) => {
+    const content = fs.readFileSync(path.join(contentDir, file), "utf-8");
+    const match = content.match(
+      /export const metadata\s*=\s*(\{[\s\S]*?\})\s*\n/
+    );
+    if (!match) {
+      throw new Error(`No se encontró metadata en ${file}`);
+    }
+
+    const metadata: Record<string, unknown> = new Function(
+      `return ${match[1]}`
+    )();
+    const slug = file.replace(/\.mdx$/, "");
+
+    return {
+      slug,
+      title: metadata.title as string,
+      date: metadata.date as string,
+      dateISO: metadata.dateISO as string,
+      readTime: metadata.readTime as string,
+      excerpt: metadata.excerpt as string,
+      category: metadata.category as Post["category"],
+      tags: metadata.tags as string[],
+      ogImage: metadata.ogImage as string | undefined,
+    };
+  });
+
+  return posts.sort(
+    (a, b) => new Date(b.dateISO).getTime() - new Date(a.dateISO).getTime()
+  );
+}
+
+export const ALL_POSTS: Post[] = loadAllPosts();
 
 export function getPostsByCategory(category: string) {
   return ALL_POSTS.filter((p) => p.category === category);

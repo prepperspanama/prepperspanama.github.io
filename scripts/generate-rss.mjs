@@ -1,5 +1,5 @@
-import { writeFileSync } from "fs";
-import { resolve, dirname } from "path";
+import { readFileSync, writeFileSync, readdirSync } from "fs";
+import { resolve, dirname, join } from "path";
 import { fileURLToPath } from "url";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -8,22 +8,31 @@ const SITE_URL = "https://prepperspanama.github.io/blog";
 const SITE_NAME = "Preppers Panamá";
 const SITE_DESCRIPTION = "Blog sobre preparacionismo, mochilas de emergencia, primeros auxilios y tecnologías de comunicación para situaciones de crisis en Panamá.";
 
-const posts = [
-  {
-    slug: "microclimas-y-riesgos-en-panama",
-    title: "Microclimas y Riesgos en Panamá: Por qué el Istmo es Propenso a Desastres",
-    date: new Date("2026-05-12"),
-    excerpt: "Panamá es un laboratorio climático de 75,517 km². Analizamos sus 8 microclimas, la matriz de riesgos por provincia y por qué el Istmo ya no es una zona libre de desastres.",
-    category: "Geografía",
-  },
-  {
-    slug: "que-es-ser-prepper",
-    title: "¿Qué es ser Prepper? Más allá de los mitos del fin del mundo",
-    date: new Date("2026-05-11"),
-    excerpt: "El preparacionismo no es paranoia, es responsabilidad. Analizamos la filosofía prepper y por qué es vital en el siglo XXI.",
-    category: "Táctica",
-  },
-];
+function loadAllPosts() {
+  const contentDir = join(process.cwd(), "src/content/blog");
+  const files = readdirSync(contentDir).filter((f) => f.endsWith(".mdx"));
+
+  return files.map((file) => {
+    const content = readFileSync(join(contentDir, file), "utf-8");
+    const match = content.match(
+      /export const metadata\s*=\s*(\{[\s\S]*?\})\s*\n/
+    );
+    if (!match) throw new Error(`No metadata found in ${file}`);
+
+    const metadata = new Function(`return ${match[1]}`)();
+    const slug = file.replace(/\.mdx$/, "");
+
+    return {
+      slug,
+      title: metadata.title,
+      date: new Date(metadata.dateISO),
+      excerpt: metadata.excerpt,
+      category: metadata.category,
+    };
+  }).sort((a, b) => b.date.getTime() - a.date.getTime());
+}
+
+const posts = loadAllPosts();
 
 function escapeXml(s) {
   return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
@@ -33,8 +42,8 @@ const items = posts
   .map(
     (p) => `    <item>
       <title>${escapeXml(p.title)}</title>
-      <link>${SITE_URL}/blog/${p.slug}/</link>
-      <guid>${SITE_URL}/blog/${p.slug}/</guid>
+      <link>${SITE_URL}/${p.slug}/</link>
+      <guid>${SITE_URL}/${p.slug}/</guid>
       <description>${escapeXml(p.excerpt)}</description>
       <category>${escapeXml(p.category)}</category>
       <pubDate>${p.date.toUTCString()}</pubDate>
