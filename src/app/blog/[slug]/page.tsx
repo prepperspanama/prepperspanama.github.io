@@ -4,6 +4,7 @@ import { SITE_URL } from "@/lib/constants";
 import Link from "next/link";
 import TableOfContents from "@/components/TableOfContents";
 import RelatedPosts from "@/components/RelatedPosts";
+import Breadcrumbs from "@/components/Breadcrumbs";
 
 interface PageProps {
   params: Promise<{ slug: string }>;
@@ -51,15 +52,45 @@ export default async function PostPage({ params }: PageProps) {
 
   const { default: Content } = await import(`../../../content/blog/${slug}.mdx`);
 
+  const jsonLd = {
+    "@context": "https://schema.org",
+    "@type": "Article",
+    headline: post.title,
+    description: post.excerpt,
+    datePublished: post.dateISO,
+    author: {
+      "@type": "Person",
+      name: "Preppers Panamá",
+    },
+    publisher: {
+      "@type": "Organization",
+      name: "Preppers Panamá",
+    },
+    image: post.ogImage || `${SITE_URL}/logo.webp`,
+    url: `${SITE_URL}/blog/${post.slug}/`,
+    mainEntityOfPage: {
+      "@type": "WebPage",
+      "@id": `${SITE_URL}/blog/${post.slug}/`,
+    },
+    keywords: post.tags.join(", "),
+    articleSection: post.category,
+  };
+
   return (
-    <article className="bg-zinc-950 min-h-screen pt-32 pb-20">
+    <>
+      <script
+        type="application/ld+json"
+        dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }}
+      />
+      <article className="bg-zinc-950 min-h-screen pt-32 pb-20">
       <div className="max-w-3xl mx-auto px-4">
-        <Link
-          href="/blog"
-          className="text-cyan-500 font-mono text-xs uppercase tracking-widest mb-12 inline-block hover:text-cyan-400 transition-colors"
-        >
-          ← Volver al blog
-        </Link>
+        <Breadcrumbs
+          items={[
+            { label: "Blog", href: "/blog" },
+            { label: post.category, href: `/blog/categoria/${post.category.toLowerCase()}` },
+            { label: post.title },
+          ]}
+        />
 
         <header className="mb-12">
           <div className="flex items-center gap-4 mb-6">
@@ -121,5 +152,6 @@ export default async function PostPage({ params }: PageProps) {
         </div>
       </div>
     </article>
+    </>
   );
 }

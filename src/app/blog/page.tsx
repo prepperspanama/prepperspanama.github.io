@@ -1,6 +1,7 @@
 import Link from "next/link";
 
 import { ALL_POSTS } from "@/lib/posts";
+import { SITE_URL } from "@/lib/constants";
 
 export const metadata = {
   title: "Blog | Preppers Panamá",
@@ -8,8 +9,28 @@ export const metadata = {
 };
 
 export default function BlogPage() {
+  const jsonLd = {
+    "@context": "https://schema.org",
+    "@type": "Blog",
+    name: "Blog | Preppers Panamá",
+    description: "Artículos sobre preparación, tecnología y supervivencia.",
+    url: `${SITE_URL}/blog/`,
+    blogPost: ALL_POSTS.map((post) => ({
+      "@type": "BlogPosting",
+      headline: post.title,
+      description: post.excerpt,
+      datePublished: post.dateISO,
+      url: `${SITE_URL}/blog/${post.slug}/`,
+    })),
+  };
+
   return (
-    <div className="bg-zinc-950 min-h-screen pt-32 pb-20">
+    <>
+      <script
+        type="application/ld+json"
+        dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }}
+      />
+      <div className="bg-zinc-950 min-h-screen pt-32 pb-20">
       <div className="max-w-6xl mx-auto px-4">
         <header className="mb-16">
           <h1 className="text-5xl md:text-7xl font-black text-white tracking-tighter mb-4">
@@ -65,5 +86,6 @@ export default function BlogPage() {
         </div>
       </div>
     </div>
+    </>
   );
 }

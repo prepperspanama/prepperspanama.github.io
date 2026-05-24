@@ -1,6 +1,7 @@
 import { notFound } from "next/navigation";
 import Link from "next/link";
 import { getPostsByTag, getAllTags } from "@/lib/posts";
+import Breadcrumbs from "@/components/Breadcrumbs";
 
 interface PageProps {
   params: Promise<{ tag: string }>;
@@ -32,12 +33,12 @@ export default async function TagPage({ params }: PageProps) {
   return (
     <div className="bg-zinc-950 min-h-screen pt-32 pb-20">
       <div className="max-w-6xl mx-auto px-4">
-        <Link
-          href="/blog"
-          className="text-cyan-500 font-mono text-xs uppercase tracking-widest mb-12 inline-block hover:text-cyan-400 transition-colors"
-        >
-          ← Volver al blog
-        </Link>
+        <Breadcrumbs
+          items={[
+            { label: "Blog", href: "/blog" },
+            { label: `#${decoded}` },
+          ]}
+        />
 
         <header className="mb-16">
           <h1 className="text-5xl md:text-7xl font-black text-white tracking-tighter mb-4">
