@@ -1,4 +1,4 @@
-import { readFileSync, readdirSync, writeFileSync } from "fs";
+import { readdirSync, writeFileSync } from "fs";
 import { join } from "path";
 
 function loadAllSlugs() {

@@ -1,6 +1,5 @@
 import { notFound } from "next/navigation";
 import Link from "next/link";
-import { ALL_POSTS } from "@/lib/posts";
 import { SITE_URL } from "@/lib/constants";
 import Breadcrumbs from "@/components/Breadcrumbs";
 import BlogList, { getPaginatedPosts, getTotalPages } from "@/components/BlogList";
