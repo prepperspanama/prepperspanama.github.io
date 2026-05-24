@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import Link from "next/link";
 import Fuse from "fuse.js";
 
@@ -16,18 +16,21 @@ interface SearchItem {
 
 export default function SearchBar() {
   const [query, setQuery] = useState("");
-  const [results, setResults] = useState<SearchItem[]>([]);
   const [open, setOpen] = useState(false);
-  const [fuse, setFuse] = useState<Fuse<SearchItem> | null>(null);
+  const [index, setIndex] = useState<SearchItem[]>([]);
   const inputRef = useRef<HTMLInputElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     fetch("/search-index.json")
       .then((r) => r.json())
-      .then((data: SearchItem[]) => {
-        setFuse(
-          new Fuse(data, {
+      .then(setIndex);
+  }, []);
+
+  const fuse = useMemo(
+    () =>
+      index.length > 0
+        ? new Fuse(index, {
             keys: [
               { name: "title", weight: 3 },
               { name: "excerpt", weight: 1.5 },
@@ -38,9 +41,14 @@ export default function SearchBar() {
             threshold: 0.4,
             includeScore: true,
           })
-        );
-      });
-  }, []);
+        : null,
+    [index]
+  );
+
+  const results = useMemo(() => {
+    if (!fuse || !query.trim()) return [];
+    return fuse.search(query).slice(0, 6).map((r) => r.item);
+  }, [fuse, query]);
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -57,16 +65,6 @@ export default function SearchBar() {
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, []);
-
-  useEffect(() => {
-    if (!fuse || !query.trim()) {
-      setResults([]);
-      return;
-    }
-    const raw = fuse.search(query);
-    setResults(raw.slice(0, 6).map((r) => r.item));
-    setOpen(true);
-  }, [query, fuse]);
 
   useEffect(() => {
     const handleClickOutside = (e: MouseEvent) => {
@@ -91,7 +89,7 @@ export default function SearchBar() {
           type="search"
           placeholder="Buscar…  (⌘K)"
           value={query}
-          onChange={(e) => setQuery(e.target.value)}
+          onChange={(e) => { setQuery(e.target.value); if (e.target.value.trim()) setOpen(true); }}
           onFocus={() => { if (results.length) setOpen(true); }}
           className="w-48 lg:w-64 pl-8 pr-3 py-1.5 text-sm bg-zinc-900 border border-zinc-700 rounded-lg text-zinc-300 placeholder-zinc-500 focus:outline-none focus:border-cyan-600 focus:ring-1 focus:ring-cyan-600/30 transition-colors font-mono"
           aria-label="Buscar artículos"
