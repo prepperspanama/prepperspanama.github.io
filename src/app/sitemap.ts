@@ -1,6 +1,7 @@
 import type { MetadataRoute } from "next";
 import { ALL_POSTS } from "@/lib/posts";
 import { SITE_URL } from "@/lib/constants";
+import { getTotalPages } from "@/components/BlogList";
 
 const MONTHS: Record<string, number> = {
   enero: 0, febrero: 1, marzo: 2, abril: 3, mayo: 4, junio: 5,
@@ -23,6 +24,16 @@ export default function sitemap(): MetadataRoute.Sitemap {
     { url: `${SITE_URL}/mapa/`, lastModified: new Date(), changeFrequency: "daily" as const, priority: 0.5 },
   ];
 
+  const totalPages = getTotalPages();
+  const paginationPages = totalPages > 1
+    ? Array.from({ length: totalPages - 1 }, (_, i) => ({
+        url: `${SITE_URL}/blog/page/${i + 2}/`,
+        lastModified: new Date(),
+        changeFrequency: "weekly" as const,
+        priority: 0.7,
+      }))
+    : [];
+
   const blogPosts = ALL_POSTS.map((post) => ({
     url: `${SITE_URL}/blog/${post.slug}/`,
     lastModified: parseSpanishDate(post.date),
@@ -30,5 +41,5 @@ export default function sitemap(): MetadataRoute.Sitemap {
     priority: 0.6,
   }));
 
-  return [...staticPages, ...blogPosts];
+  return [...staticPages, ...paginationPages, ...blogPosts];
 }

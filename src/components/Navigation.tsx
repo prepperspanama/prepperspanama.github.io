@@ -89,6 +89,7 @@ export default function Navigation() {
   const links = [
     { href: "/", label: "Inicio" },
     { href: "/blog", label: "Blog" },
+    { href: "/tags", label: "Tags" },
     { href: "/mapa", label: "Mapa" },
   ];
 
