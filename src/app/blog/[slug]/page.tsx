@@ -21,6 +21,8 @@ export async function generateMetadata({ params }: PageProps) {
   const post = ALL_POSTS.find((p) => p.slug === slug);
   if (!post) return {};
 
+  const ogImage = post.ogImage || "/logo.webp";
+
   return {
     title: post.title,
     description: post.excerpt,
@@ -31,10 +33,13 @@ export async function generateMetadata({ params }: PageProps) {
       publishedTime: post.date,
       tags: post.tags,
       url: `${SITE_URL}/blog/${post.slug}/`,
+      images: [{ url: `${SITE_URL}${ogImage}`, width: 1200, height: 630 }],
     },
     twitter: {
       title: post.title,
       description: post.excerpt,
+      card: "summary_large_image",
+      images: [`${SITE_URL}${ogImage}`],
     },
     alternates: {
       canonical: `/blog/${post.slug}/`,
