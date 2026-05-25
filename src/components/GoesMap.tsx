@@ -341,7 +341,10 @@ export default function GoesMap() {
           shadowUrl: "https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png",
         });
 
-        const map = L.map(mapRef.current!, {
+        const mapElement = mapRef.current;
+        if (!mapElement) return;
+
+        const map = L.map(mapElement, {
           center: [8.5, -80.0],
           zoom: 7,
           zoomControl: false,
