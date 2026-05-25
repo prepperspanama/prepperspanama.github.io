@@ -384,6 +384,7 @@ export default function GoesMap() {
 
         const FullscreenControl = L.Control.extend({
           options: { position: "bottomright" },
+          _onFullscreenChange: null as null | (() => void),
           onAdd: function () {
             const container = L.DomUtil.create("div", "leaflet-bar leaflet-control");
             const btn = L.DomUtil.create("a", "", container);
@@ -400,6 +401,8 @@ export default function GoesMap() {
               btn.title = isFull ? "Salir de pantalla completa" : "Pantalla completa";
             };
 
+            this._onFullscreenChange = updateBtn;
+
             L.DomEvent.on(btn, "click", (e: Event) => {
               e.preventDefault();
               e.stopPropagation();
@@ -411,8 +414,14 @@ export default function GoesMap() {
               }
             });
 
-            document.addEventListener("fullscreenchange", updateBtn);
+            document.addEventListener("fullscreenchange", this._onFullscreenChange);
             return container;
+          },
+          onRemove: function () {
+            if (this._onFullscreenChange) {
+              document.removeEventListener("fullscreenchange", this._onFullscreenChange);
+              this._onFullscreenChange = null;
+            }
           },
         });
 
