@@ -267,8 +267,9 @@ function createGoesLayer(
   opacity: number
 ) {
   if (id === "geocolor") {
-    // Export endpoint — no tile cache; substitute bbox coords manually
-    const tileLayer = L.tileLayer("", { maxZoom, opacity });
+    // Export endpoint — no tile cache; substitute bbox coords manually.
+    // Use a placeholder template URL and override getTileUrl to avoid touching private internals.
+    const tileLayer = L.tileLayer("{z}/{x}/{y}", { maxZoom, opacity });
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     (tileLayer as any).getTileUrl = function (coords: { x: number; y: number; z: number }) {
       const { xmin, ymin, xmax, ymax } = tileXYToBbox(coords.x, coords.y, coords.z, 256);
@@ -278,8 +279,6 @@ function createGoesLayer(
         .replace("{xmax}", xmax.toFixed(6))
         .replace("{ymax}", ymax.toFixed(6));
     };
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (tileLayer as any)._url = "";
     return tileLayer;
   }
   // ABI13 and ABI10 have tile caches — Leaflet handles {z}/{y}/{x} natively
@@ -287,7 +286,10 @@ function createGoesLayer(
 }
 
 function tileLayerUrl(id: string): string {
-  const service = GOES_LAYERS.find((l) => l.id === id)!;
+  const service = GOES_LAYERS.find((l) => l.id === id);
+  if (!service) {
+    throw new Error(`Unknown GOES layer id: ${id}`);
+  }
   if (id === "geocolor") {
     return `${service.url}/exportImage?bbox={xmin},{ymin},{xmax},{ymax}&bboxSR=3857&imageSR=3857&size=256,256&format=png&f=image`;
   }
@@ -341,7 +343,10 @@ export default function GoesMap() {
           shadowUrl: "https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png",
         });
 
-        const map = L.map(mapRef.current!, {
+        const mapElement = mapRef.current;
+        if (!mapElement) return;
+
+        const map = L.map(mapElement, {
           center: [8.5, -80.0],
           zoom: 7,
           zoomControl: false,
