@@ -384,6 +384,7 @@ export default function GoesMap() {
 
         const FullscreenControl = L.Control.extend({
           options: { position: "bottomright" },
+          _onFullscreenChange: null as null | (() => void),
           onAdd: function () {
             const container = L.DomUtil.create("div", "leaflet-bar leaflet-control");
             const btn = L.DomUtil.create("a", "", container);
@@ -400,6 +401,8 @@ export default function GoesMap() {
               btn.title = isFull ? "Salir de pantalla completa" : "Pantalla completa";
             };
 
+            this._onFullscreenChange = updateBtn;
+
             L.DomEvent.on(btn, "click", (e: Event) => {
               e.preventDefault();
               e.stopPropagation();
@@ -411,8 +414,14 @@ export default function GoesMap() {
               }
             });
 
-            document.addEventListener("fullscreenchange", updateBtn);
+            document.addEventListener("fullscreenchange", this._onFullscreenChange);
             return container;
+          },
+          onRemove: function () {
+            if (this._onFullscreenChange) {
+              document.removeEventListener("fullscreenchange", this._onFullscreenChange);
+              this._onFullscreenChange = null;
+            }
           },
         });
 
@@ -438,6 +447,8 @@ export default function GoesMap() {
   }, [mounted]);
 
   useEffect(() => {
+    if (!mounted) return;
+
     const map = mapInstanceRef.current;
     const L = LRef.current;
     if (!map || !L || !goesLayerRef.current) return;
@@ -456,7 +467,7 @@ export default function GoesMap() {
     newLayer.on("loading", handleTileLoading);
 
     setLastUpdate(new Date().toLocaleTimeString("es-PA", { hour: "2-digit", minute: "2-digit" }));
-  }, [activeLayer, refreshTick]);
+  }, [mounted, activeLayer, refreshTick]);
 
   useEffect(() => {
     if (goesLayerRef.current) {
@@ -500,10 +511,8 @@ export default function GoesMap() {
 
       marker.bindPopup(popup);
 
-      let pinned = false;
-
       const handleHover = async (e: { target: { openPopup: () => void } }) => {
-        if (pinned) return;
+        if (pinnedByCityRef.current.get(city.name)) return;
         e.target.openPopup();
         try {
           const data = await fetchWeatherData(city.lat, city.lng);
@@ -514,7 +523,7 @@ export default function GoesMap() {
       };
 
       const handleUnhover = (e: { target: { closePopup: () => void } }) => {
-        if (pinned) return;
+        if (pinnedByCityRef.current.get(city.name)) return;
         e.target.closePopup();
       };
 
@@ -561,7 +570,7 @@ export default function GoesMap() {
     );
   }
 
-  const activeCount = [showWeather].filter(Boolean).length;
+  const activeCount = showWeather ? 1 : 0;
 
   return (
     <div className="flex flex-col flex-grow min-h-0">
