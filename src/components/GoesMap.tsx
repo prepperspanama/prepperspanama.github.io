@@ -287,7 +287,10 @@ function createGoesLayer(
 }
 
 function tileLayerUrl(id: string): string {
-  const service = GOES_LAYERS.find((l) => l.id === id)!;
+  const service = GOES_LAYERS.find((l) => l.id === id);
+  if (!service) {
+    throw new Error(`Unknown GOES layer id: ${id}`);
+  }
   if (id === "geocolor") {
     return `${service.url}/exportImage?bbox={xmin},{ymin},{xmax},{ymax}&bboxSR=3857&imageSR=3857&size=256,256&format=png&f=image`;
   }
