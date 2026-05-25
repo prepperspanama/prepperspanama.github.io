@@ -13,6 +13,14 @@ export interface Post {
   ogImage?: string;
 }
 
+function sanitizeSlugFromFileName(fileName: string): string {
+  const rawSlug = fileName.replace(/\.mdx$/, "").trim().toLowerCase();
+  if (!/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(rawSlug)) {
+    throw new Error(`Slug inválido derivado del archivo: ${fileName}`);
+  }
+  return rawSlug;
+}
+
 function loadAllPosts(): Post[] {
   const contentDir = path.join(process.cwd(), "src/content/blog");
   const files = fs.readdirSync(contentDir).filter((f) => f.endsWith(".mdx"));
@@ -29,7 +37,7 @@ function loadAllPosts(): Post[] {
     const metadata: Record<string, unknown> = new Function(
       `return ${match[1]}`
     )();
-    const slug = file.replace(/\.mdx$/, "");
+    const slug = sanitizeSlugFromFileName(file);
 
     return {
       slug,
