@@ -561,7 +561,7 @@ export default function GoesMap() {
     );
   }
 
-  const activeCount = [showWeather].filter(Boolean).length;
+  const activeCount = showWeather ? 1 : 0;
 
   return (
     <div className="flex flex-col flex-grow min-h-0">
