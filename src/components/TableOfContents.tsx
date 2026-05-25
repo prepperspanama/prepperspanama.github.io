@@ -19,12 +19,20 @@ export default function TableOfContents() {
     const headings = article.querySelectorAll("h2, h3");
     const tocItems: TOCItem[] = [];
 
-    headings.forEach((h) => {
-      const id = h.textContent?.toLowerCase().replace(/\s+/g, "-").replace(/[^a-z0-9-]/g, "") ?? "";
+    headings.forEach((h, index) => {
+      const text = h.textContent ?? "";
+      const id =
+        text
+          .toLowerCase()
+          .normalize("NFD")
+          .replace(/[\u0300-\u036f]/g, "")
+          .replace(/\s+/g, "-")
+          .replace(/[^a-z0-9-]/g, "")
+          .replace(/^-+|-+$/g, "") || `heading-${index}`;
       h.id = id;
       tocItems.push({
         id,
-        text: h.textContent ?? "",
+        text,
         level: h.tagName === "H2" ? 2 : 3,
       });
     });
