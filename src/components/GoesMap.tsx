@@ -438,6 +438,8 @@ export default function GoesMap() {
   }, [mounted]);
 
   useEffect(() => {
+    if (!mounted) return;
+
     const map = mapInstanceRef.current;
     const L = LRef.current;
     if (!map || !L || !goesLayerRef.current) return;
@@ -456,7 +458,7 @@ export default function GoesMap() {
     newLayer.on("loading", handleTileLoading);
 
     setLastUpdate(new Date().toLocaleTimeString("es-PA", { hour: "2-digit", minute: "2-digit" }));
-  }, [activeLayer, refreshTick]);
+  }, [mounted, activeLayer, refreshTick]);
 
   useEffect(() => {
     if (goesLayerRef.current) {
