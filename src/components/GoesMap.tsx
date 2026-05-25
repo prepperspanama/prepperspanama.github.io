@@ -500,10 +500,8 @@ export default function GoesMap() {
 
       marker.bindPopup(popup);
 
-      let pinned = false;
-
       const handleHover = async (e: { target: { openPopup: () => void } }) => {
-        if (pinned) return;
+        if (pinnedByCityRef.current.get(city.name)) return;
         e.target.openPopup();
         try {
           const data = await fetchWeatherData(city.lat, city.lng);
@@ -514,7 +512,7 @@ export default function GoesMap() {
       };
 
       const handleUnhover = (e: { target: { closePopup: () => void } }) => {
-        if (pinned) return;
+        if (pinnedByCityRef.current.get(city.name)) return;
         e.target.closePopup();
       };
 
