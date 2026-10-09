@@ -1,10 +1,11 @@
 import { readFileSync, writeFileSync, readdirSync } from "fs";
 import { resolve, dirname, join } from "path";
 import { fileURLToPath } from "url";
+import JSON5 from "json5";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
-const SITE_URL = "https://prepperspanama.github.io/blog";
+const SITE_URL = "https://prepperspanama.github.io";
 const SITE_NAME = "Preppers Panamá";
 const SITE_DESCRIPTION = "Blog sobre preparacionismo, mochilas de emergencia, primeros auxilios y tecnologías de comunicación para situaciones de crisis en Panamá.";
 
@@ -19,7 +20,7 @@ function loadAllPosts() {
     );
     if (!match) throw new Error(`No metadata found in ${file}`);
 
-    const metadata = new Function(`return ${match[1]}`)();
+    const metadata = JSON5.parse(match[1]);
     const slug = file.replace(/\.mdx$/, "");
 
     return {
@@ -42,8 +43,8 @@ const items = posts
   .map(
     (p) => `    <item>
       <title>${escapeXml(p.title)}</title>
-      <link>${SITE_URL}/${p.slug}/</link>
-      <guid>${SITE_URL}/${p.slug}/</guid>
+      <link>${SITE_URL}/blog/${p.slug}/</link>
+      <guid>${SITE_URL}/blog/${p.slug}/</guid>
       <description>${escapeXml(p.excerpt)}</description>
       <category>${escapeXml(p.category)}</category>
       <pubDate>${p.date.toUTCString()}</pubDate>
@@ -55,7 +56,7 @@ const rss = `<?xml version="1.0" encoding="UTF-8"?>
 <rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom">
   <channel>
     <title>${escapeXml(SITE_NAME)}</title>
-    <link>${SITE_URL}/</link>
+    <link>${SITE_URL}/blog/</link>
     <description>${escapeXml(SITE_DESCRIPTION)}</description>
     <language>es-pa</language>
     <lastBuildDate>${new Date().toUTCString()}</lastBuildDate>

@@ -1,5 +1,6 @@
 import fs from "fs";
 import path from "path";
+import JSON5 from "json5";
 
 export interface Post {
   slug: string;
@@ -34,9 +35,7 @@ function loadAllPosts(): Post[] {
       throw new Error(`No se encontró metadata en ${file}`);
     }
 
-    const metadata: Record<string, unknown> = new Function(
-      `return ${match[1]}`
-    )();
+    const metadata: Record<string, unknown> = JSON5.parse(match[1]);
     const slug = sanitizeSlugFromFileName(file);
 
     return {

@@ -1,5 +1,6 @@
 import { readFileSync, readdirSync, writeFileSync } from "fs";
 import { join } from "path";
+import JSON5 from "json5";
 
 function stripMarkdown(md) {
   return md
@@ -23,7 +24,7 @@ function parseMetadata(content) {
     /export const metadata\s*=\s*(\{[\s\S]*?\})\s*\n/
   );
   if (!match) return null;
-  return new Function(`return ${match[1]}`)();
+  return JSON5.parse(match[1]);
 }
 
 function extractTextContent(content) {
