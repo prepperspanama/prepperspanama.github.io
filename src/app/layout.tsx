@@ -64,10 +64,21 @@ export default function RootLayout({
       data-scroll-behavior="smooth"
     >
       <head>
-        {/* Security Headers (Meta Tag implementations for Static Sites) */}
+        {/*
+          Security headers via meta tag: GitHub Pages serves this as a static
+          export with no server, so custom HTTP headers aren't possible and
+          this meta tag is the only way to ship a CSP. Two consequences:
+          - `frame-ancestors` has no effect here (the CSP spec requires it be
+            delivered as an HTTP header; browsers ignore it in a meta tag),
+            so it's kept only as documentation of intent, not enforcement.
+          - `unsafe-inline` on script-src is required because there's no
+            server to mint per-request nonces for Next's hydration script and
+            the per-page JSON-LD <script> tags. `unsafe-eval` is NOT needed
+            (production builds don't eval) and has been removed.
+        */}
         <meta
           httpEquiv="Content-Security-Policy"
-          content="default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval' https://cloud.umami.is; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https://server.arcgisonline.com https://nowcoast.noaa.gov https://unpkg.com https://satellitemaps.nesdis.noaa.gov; font-src 'self' data:; connect-src 'self' https://api.open-meteo.com https://cloud.umami.is; object-src 'none'; base-uri 'self'; frame-src 'none'; frame-ancestors 'none'; form-action 'self';"
+          content="default-src 'self'; script-src 'self' 'unsafe-inline' https://cloud.umami.is; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https://server.arcgisonline.com https://nowcoast.noaa.gov https://unpkg.com https://satellitemaps.nesdis.noaa.gov; font-src 'self' data:; connect-src 'self' https://api.open-meteo.com https://earthquake.usgs.gov https://cloud.umami.is; object-src 'none'; base-uri 'self'; frame-src 'none'; frame-ancestors 'none'; form-action 'self';"
         />
         <meta name="referrer" content="strict-origin-when-cross-origin" />
         <script defer src="https://cloud.umami.is/script.js" data-website-id="91fd4640-1243-4498-9645-263f5c1ee5dd"></script>

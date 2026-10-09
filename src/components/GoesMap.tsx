@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 interface City {
   lat: number;
@@ -51,6 +51,49 @@ interface OpenMeteoResponse {
 interface CacheEntry {
   data: OpenMeteoResponse;
   ts: number;
+}
+
+interface UsgsQuakeProperties {
+  mag: number | null;
+  place: string | null;
+  time: number;
+  status: string;
+  url: string;
+}
+
+interface UsgsQuakeFeature {
+  id: string;
+  properties: UsgsQuakeProperties;
+  geometry: {
+    coordinates: [number, number, number];
+  };
+}
+
+interface UsgsQuakeResponse {
+  features: UsgsQuakeFeature[];
+}
+
+interface QuakeCacheEntry {
+  data: UsgsQuakeFeature[];
+  ts: number;
+}
+
+interface NormalizedQuake {
+  id: string;
+  source: "usgs" | "igc-up";
+  mag: number | null;
+  place: string | null;
+  time: number;
+  status: string;
+  lat: number;
+  lon: number;
+  depthKm: number | null;
+  url: string;
+}
+
+interface IgcQuakesResponse {
+  fetchedAt: string | null;
+  quakes: NormalizedQuake[];
 }
 
 const GOES_LAYERS: GoesLayer[] = [
@@ -170,7 +213,28 @@ async function fetchWeatherData(lat: number, lng: number): Promise<OpenMeteoResp
   return data;
 }
 
-function buildPopupHtml(cityName: string, d: OpenMeteoResponse): string {
+function mkEl<K extends keyof HTMLElementTagNameMap>(
+  tag: K,
+  cssText: string,
+  text?: string
+): HTMLElementTagNameMap[K] {
+  const el = document.createElement(tag);
+  el.style.cssText = cssText;
+  if (text !== undefined) el.textContent = text;
+  return el;
+}
+
+function statCard(label: string, valueCss: string, valueText: string, subText: string): HTMLDivElement {
+  const card = mkEl("div", "background:#18181b;border-radius:6px;padding:6px 8px");
+  card.append(
+    mkEl("div", "font-size:9px;color:#71717a;text-transform:uppercase;letter-spacing:0.08em", label),
+    mkEl("div", valueCss, valueText),
+    mkEl("div", "font-size:9px;color:#52525b", subText)
+  );
+  return card;
+}
+
+function buildPopupContent(cityName: string, d: OpenMeteoResponse): HTMLDivElement {
   const c = d.current;
   const day = d.daily;
   const { emoji, desc } = wmoToLabel(c.weather_code);
@@ -178,67 +242,215 @@ function buildPopupHtml(cityName: string, d: OpenMeteoResponse): string {
   const todayEmoji = wmoToLabel(day.weather_code[0]);
   const sunrise = formatTime(day.sunrise[0]);
   const sunset = formatTime(day.sunset[0]);
-  return `
-    <div style="font-family:'Inter',monospace;min-width:230px;background:#09090b;border-radius:10px;overflow:hidden;border:1px solid #27272a">
-      <div style="background:linear-gradient(135deg,#0e7490,#0369a1);padding:10px 12px 8px">
-        <div style="font-size:13px;font-weight:700;color:#fff;letter-spacing:0.02em">${cityName}</div>
-        <div style="display:flex;justify-content:space-between;align-items:center;margin-top:2px">
-          <span style="font-size:11px;color:#bae6fd">${emoji} ${desc}</span>
-          <span style="font-size:10px;color:#7dd3fc">Ahora</span>
-        </div>
-      </div>
-      <div style="padding:8px 10px;display:grid;grid-template-columns:1fr 1fr;gap:4px">
-        <div style="background:#18181b;border-radius:6px;padding:6px 8px">
-          <div style="font-size:9px;color:#71717a;text-transform:uppercase;letter-spacing:0.08em">Temperatura</div>
-          <div style="font-size:18px;font-weight:700;color:#22d3ee">${c.temperature_2m}°C</div>
-          <div style="font-size:9px;color:#52525b">Sensación ${c.apparent_temperature}°</div>
-        </div>
-        <div style="background:#18181b;border-radius:6px;padding:6px 8px">
-          <div style="font-size:9px;color:#71717a;text-transform:uppercase;letter-spacing:0.08em">Humedad</div>
-          <div style="font-size:16px;font-weight:700;color:#34d399">${c.relative_humidity_2m}%</div>
-          <div style="font-size:9px;color:#52525b">Precip. ${c.precipitation} mm</div>
-        </div>
-        <div style="background:#18181b;border-radius:6px;padding:6px 8px">
-          <div style="font-size:9px;color:#71717a;text-transform:uppercase;letter-spacing:0.08em">Viento</div>
-          <div style="font-size:14px;font-weight:700;color:#fb923c">${c.wind_speed_10m} km/h</div>
-          <div style="font-size:9px;color:#52525b">${arrow} ${c.wind_direction_10m}°</div>
-        </div>
-        <div style="background:#18181b;border-radius:6px;padding:6px 8px">
-          <div style="font-size:9px;color:#71717a;text-transform:uppercase;letter-spacing:0.08em">Presión</div>
-          <div style="font-size:14px;font-weight:700;color:#a78bfa">${c.surface_pressure} hPa</div>
-          <div style="font-size:9px;color:#52525b">${c.precipitation > 0 ? "🌧️ " + c.precipitation + " mm" : "Sin lluvia"}</div>
-        </div>
-      </div>
-      <div style="padding:6px 10px 4px;border-top:1px solid #27272a">
-        <div style="font-size:9px;color:#71717a;text-transform:uppercase;letter-spacing:0.08em;margin-bottom:4px;text-align:center">Pronóstico del día</div>
-        <div style="display:grid;grid-template-columns:1fr 1fr;gap:4px">
-          <div style="background:#18181b;border-radius:6px;padding:5px 8px">
-            <div style="font-size:8px;color:#71717a;text-transform:uppercase">Temp. máx/mín</div>
-            <div style="font-size:13px;font-weight:700;color:#fbbf24">${day.temperature_2m_max[0]}° / ${day.temperature_2m_min[0]}°</div>
-            <div style="font-size:9px;color:#52525b">${todayEmoji.emoji} ${todayEmoji.desc}</div>
-          </div>
-          <div style="background:#18181b;border-radius:6px;padding:5px 8px">
-            <div style="font-size:8px;color:#71717a;text-transform:uppercase">Lluvia</div>
-            <div style="font-size:13px;font-weight:700;color:#60a5fa">${day.precipitation_probability_max[0]}%</div>
-            <div style="font-size:9px;color:#52525b">${day.precipitation_sum[0]} mm estimados</div>
-          </div>
-          <div style="background:#18181b;border-radius:6px;padding:5px 8px">
-            <div style="font-size:8px;color:#71717a;text-transform:uppercase">Viento máx.</div>
-            <div style="font-size:13px;font-weight:700;color:#fb923c">${day.wind_speed_10m_max[0]} km/h</div>
-            <div style="font-size:9px;color:#52525b">${windDirToArrow(day.wind_direction_10m_dominant[0])} ${day.wind_direction_10m_dominant[0]}°</div>
-          </div>
-          <div style="background:#18181b;border-radius:6px;padding:5px 8px">
-            <div style="font-size:8px;color:#71717a;text-transform:uppercase">Sol / UV</div>
-            <div style="font-size:11px;font-weight:700;color:#fcd34d">${sunrise} — ${sunset}</div>
-            <div style="font-size:9px;color:#52525b">☂️ UV ${day.uv_index_max[0]} (${uvLabel(day.uv_index_max[0])})</div>
-          </div>
-        </div>
-      </div>
-      <div style="padding:4px 12px 8px;font-size:9px;color:#3f3f46;text-align:right">
-        Open-Meteo · Pronóstico del día
-      </div>
-    </div>
-  `;
+
+  const root = mkEl("div", "font-family:'Inter',monospace;min-width:230px;background:#09090b;border-radius:10px;overflow:hidden;border:1px solid #27272a");
+
+  const header = mkEl("div", "background:linear-gradient(135deg,#0e7490,#0369a1);padding:10px 12px 8px");
+  const headerRow = mkEl("div", "display:flex;justify-content:space-between;align-items:center;margin-top:2px");
+  headerRow.append(
+    mkEl("span", "font-size:11px;color:#bae6fd", `${emoji} ${desc}`),
+    mkEl("span", "font-size:10px;color:#7dd3fc", "Ahora")
+  );
+  header.append(
+    mkEl("div", "font-size:13px;font-weight:700;color:#fff;letter-spacing:0.02em", cityName),
+    headerRow
+  );
+
+  const currentGrid = mkEl("div", "padding:8px 10px;display:grid;grid-template-columns:1fr 1fr;gap:4px");
+  currentGrid.append(
+    statCard("Temperatura", "font-size:18px;font-weight:700;color:#22d3ee", `${c.temperature_2m}°C`, `Sensación ${c.apparent_temperature}°`),
+    statCard("Humedad", "font-size:16px;font-weight:700;color:#34d399", `${c.relative_humidity_2m}%`, `Precip. ${c.precipitation} mm`),
+    statCard("Viento", "font-size:14px;font-weight:700;color:#fb923c", `${c.wind_speed_10m} km/h`, `${arrow} ${c.wind_direction_10m}°`),
+    statCard("Presión", "font-size:14px;font-weight:700;color:#a78bfa", `${c.surface_pressure} hPa`, c.precipitation > 0 ? `🌧️ ${c.precipitation} mm` : "Sin lluvia")
+  );
+
+  const forecast = mkEl("div", "padding:6px 10px 4px;border-top:1px solid #27272a");
+  const forecastGrid = mkEl("div", "display:grid;grid-template-columns:1fr 1fr;gap:4px");
+  forecastGrid.append(
+    statCard("Temp. máx/mín", "font-size:13px;font-weight:700;color:#fbbf24", `${day.temperature_2m_max[0]}° / ${day.temperature_2m_min[0]}°`, `${todayEmoji.emoji} ${todayEmoji.desc}`),
+    statCard("Lluvia", "font-size:13px;font-weight:700;color:#60a5fa", `${day.precipitation_probability_max[0]}%`, `${day.precipitation_sum[0]} mm estimados`),
+    statCard("Viento máx.", "font-size:13px;font-weight:700;color:#fb923c", `${day.wind_speed_10m_max[0]} km/h`, `${windDirToArrow(day.wind_direction_10m_dominant[0])} ${day.wind_direction_10m_dominant[0]}°`),
+    statCard("Sol / UV", "font-size:11px;font-weight:700;color:#fcd34d", `${sunrise} — ${sunset}`, `☂️ UV ${day.uv_index_max[0]} (${uvLabel(day.uv_index_max[0])})`)
+  );
+  forecast.append(
+    mkEl("div", "font-size:9px;color:#71717a;text-transform:uppercase;letter-spacing:0.08em;margin-bottom:4px;text-align:center", "Pronóstico del día"),
+    forecastGrid
+  );
+
+  const footer = mkEl("div", "padding:4px 12px 8px;font-size:9px;color:#3f3f46;text-align:right", "Open-Meteo · Pronóstico del día");
+
+  root.append(header, currentGrid, forecast, footer);
+  return root;
+}
+
+function buildLoadingContent(cityName: string): HTMLDivElement {
+  const el = mkEl("div", "font-family:monospace;font-size:11px;color:#a1a1aa;padding:6px 8px");
+  const spinner = mkEl("span", "color:#22d3ee", "⌛");
+  const strong = mkEl("b", "color:#fff", cityName);
+  el.append(spinner, document.createTextNode(" Cargando datos de "), strong, document.createTextNode("…"));
+  return el;
+}
+
+function buildErrorContent(): HTMLDivElement {
+  return mkEl("div", "font-family:monospace;font-size:11px;color:#f87171;padding:6px 8px", "Error al obtener datos climáticos.");
+}
+
+// Caja que engloba Panamá y su plataforma sísmica continental, usada para
+// acotar la consulta al catálogo del USGS a la región de interés.
+const QUAKE_BBOX = { minLat: 6, maxLat: 10.5, minLon: -84, maxLon: -77 };
+const QUAKE_LOOKBACK_DAYS = 30;
+const QUAKE_MIN_MAGNITUDE = 2;
+const QUAKE_CACHE_KEY = "preppers-quake-cache";
+const QUAKE_CACHE_TTL = 3 * 60 * 1000;
+
+function getQuakeCache(): QuakeCacheEntry | null {
+  try {
+    const raw = localStorage.getItem(QUAKE_CACHE_KEY);
+    if (raw) return JSON.parse(raw);
+  } catch {}
+  return null;
+}
+
+function setQuakeCache(data: UsgsQuakeFeature[]) {
+  try {
+    localStorage.setItem(QUAKE_CACHE_KEY, JSON.stringify({ data, ts: Date.now() }));
+  } catch {}
+}
+
+async function fetchUsgsQuakes(): Promise<UsgsQuakeFeature[]> {
+  const cache = getQuakeCache();
+  if (cache && Date.now() - cache.ts < QUAKE_CACHE_TTL) {
+    return cache.data;
+  }
+  const starttime = new Date(Date.now() - QUAKE_LOOKBACK_DAYS * 24 * 60 * 60 * 1000).toISOString();
+  const url = `https://earthquake.usgs.gov/fdsnws/event/1/query?format=geojson&starttime=${starttime}&minlatitude=${QUAKE_BBOX.minLat}&maxlatitude=${QUAKE_BBOX.maxLat}&minlongitude=${QUAKE_BBOX.minLon}&maxlongitude=${QUAKE_BBOX.maxLon}&minmagnitude=${QUAKE_MIN_MAGNITUDE}&orderby=time`;
+  const res = await fetch(url);
+  if (!res.ok) throw new Error("Error al obtener datos sísmicos");
+  const json: UsgsQuakeResponse = await res.json();
+  setQuakeCache(json.features);
+  return json.features;
+}
+
+function usgsToNormalized(f: UsgsQuakeFeature): NormalizedQuake {
+  const [lon, lat, depthKm] = f.geometry.coordinates;
+  return {
+    id: `usgs-${f.id}`,
+    source: "usgs",
+    mag: f.properties.mag,
+    place: f.properties.place,
+    time: f.properties.time,
+    status: f.properties.status,
+    lat,
+    lon,
+    depthKm: depthKm ?? null,
+    url: f.properties.url,
+  };
+}
+
+// Generado en build-time por scripts/fetch-igc-quakes.mjs a partir de la
+// tabla pública del Instituto de Geociencias de la Universidad de Panamá
+// (IGC-UP, la red sísmica nacional). Es un archivo estático same-origin
+// porque esa página no tiene API ni CORS para leerse directo del navegador.
+async function fetchIgcQuakes(): Promise<NormalizedQuake[]> {
+  try {
+    const res = await fetch("/quakes-igc.json");
+    if (!res.ok) return [];
+    const json: IgcQuakesResponse = await res.json();
+    return json.quakes;
+  } catch {
+    return [];
+  }
+}
+
+const DEDUPE_TIME_MS = 5 * 60 * 1000;
+const DEDUPE_DIST_KM = 50;
+
+function haversineKm(lat1: number, lon1: number, lat2: number, lon2: number): number {
+  const R = 6371;
+  const dLat = ((lat2 - lat1) * Math.PI) / 180;
+  const dLon = ((lon2 - lon1) * Math.PI) / 180;
+  const a =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos((lat1 * Math.PI) / 180) * Math.cos((lat2 * Math.PI) / 180) * Math.sin(dLon / 2) ** 2;
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+
+// IGC-UP es la red local y detecta sismos menores que USGS no reporta, así
+// que se conservan todos sus eventos. De USGS solo se agregan los que no
+// coincidan en tiempo y ubicación con uno ya reportado por IGC-UP, para no
+// mostrar el mismo sismo duplicado con dos íconos.
+function mergeQuakes(igc: NormalizedQuake[], usgs: NormalizedQuake[]): NormalizedQuake[] {
+  const usgsUnique = usgs.filter(
+    (u) =>
+      !igc.some(
+        (i) => Math.abs(i.time - u.time) <= DEDUPE_TIME_MS && haversineKm(i.lat, i.lon, u.lat, u.lon) <= DEDUPE_DIST_KM
+      )
+  );
+  return [...igc, ...usgsUnique];
+}
+
+function quakeColor(mag: number | null): string {
+  const m = mag ?? 0;
+  if (m >= 6) return "#ef4444";
+  if (m >= 4.5) return "#f97316";
+  if (m >= 3) return "#facd22";
+  return "#4ade80";
+}
+
+function quakeRadius(mag: number | null): number {
+  return Math.max(4, (mag ?? 1) * 2.6);
+}
+
+function formatQuakeTime(ms: number): string {
+  return new Date(ms).toLocaleString("es-PA", {
+    day: "2-digit",
+    month: "short",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
+function quakeTimeAgo(ms: number): string {
+  const diffMin = Math.floor((Date.now() - ms) / 60000);
+  if (diffMin < 1) return "hace instantes";
+  if (diffMin < 60) return `hace ${diffMin} min`;
+  const diffHours = Math.floor(diffMin / 60);
+  if (diffHours < 24) return `hace ${diffHours} h`;
+  return `hace ${Math.floor(diffHours / 24)} d`;
+}
+
+function buildQuakePopupContent(q: NormalizedQuake): HTMLDivElement {
+  const { mag, place, time, status, depthKm, url, source } = q;
+  const color = quakeColor(mag);
+  const sourceLabel = source === "igc-up" ? "IGC-UP (Panamá)" : "USGS";
+
+  const root = mkEl("div", "font-family:'Inter',monospace;min-width:210px;background:#09090b;border-radius:10px;overflow:hidden;border:1px solid #27272a");
+
+  const header = mkEl("div", `background:${color};padding:8px 12px`);
+  header.appendChild(mkEl("div", "font-size:16px;font-weight:800;color:#09090b", `M ${mag != null ? mag.toFixed(1) : "N/D"}`));
+
+  const body = mkEl("div", "padding:8px 10px");
+  body.append(
+    mkEl("div", "font-size:12px;color:#e4e4e7;font-weight:600;margin-bottom:4px", place ?? "Ubicación desconocida"),
+    mkEl("div", "font-size:10px;color:#a1a1aa", `${formatQuakeTime(time)} · ${quakeTimeAgo(time)}`),
+    mkEl(
+      "div",
+      "font-size:10px;color:#71717a;margin-top:2px",
+      `Profundidad: ${depthKm != null ? depthKm.toFixed(1) + " km" : "N/D"} · ${status === "reviewed" ? "Revisado" : "Preliminar"}`
+    ),
+    mkEl("div", "font-size:9px;color:#52525b;margin-top:4px;text-transform:uppercase;letter-spacing:0.06em", `Fuente: ${sourceLabel}`)
+  );
+
+  const link = document.createElement("a");
+  link.href = url;
+  link.target = "_blank";
+  link.rel = "noopener noreferrer";
+  link.textContent = "Ver detalle →";
+  link.style.cssText = "display:block;margin-top:8px;font-size:10px;color:#22d3ee;text-decoration:none";
+  body.appendChild(link);
+
+  root.append(header, body);
+  return root;
 }
 
 type LeafletInstance = typeof import("leaflet");
@@ -297,17 +509,22 @@ function tileLayerUrl(id: string): string {
 }
 
 export default function GoesMap() {
+  const rootRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<HTMLDivElement>(null);
   const mapInstanceRef = useRef<LeafletMap | null>(null);
   const goesLayerRef = useRef<LeafletTileLayer | null>(null);
   const LRef = useRef<LeafletInstance | null>(null);
   const weatherLayerGroupRef = useRef<LeafletLayerGroup | null>(null);
+  const quakeLayerGroupRef = useRef<LeafletLayerGroup | null>(null);
   const [activeLayer, setActiveLayer] = useState<GoesLayer>(GOES_LAYERS[0]);
   const [goesOpacity, setGoesOpacity] = useState(GOES_LAYERS[0].opacity);
   const [isLoading, setIsLoading] = useState(true);
   const [lastUpdate, setLastUpdate] = useState("");
   const [mounted, setMounted] = useState(false);
   const [showWeather, setShowWeather] = useState(false);
+  const [showQuakes, setShowQuakes] = useState(false);
+  const [quakes, setQuakes] = useState<NormalizedQuake[]>([]);
+  const [quakeError, setQuakeError] = useState<string | null>(null);
   const [mapError, setMapError] = useState<string | null>(null);
   const [refreshTick, setRefreshTick] = useState(0);
   const goesOpacityRef = useRef(goesOpacity);
@@ -393,7 +610,7 @@ export default function GoesMap() {
             btn.style.cssText = "font-size:20px;display:flex;align-items:center;justify-content:center;width:34px;height:34px;cursor:pointer;background:#fff;color:#222;font-weight:700";
 
             const updateBtn = () => {
-              const isFull = document.fullscreenElement === map.getContainer();
+              const isFull = document.fullscreenElement === rootRef.current;
               btn.style.background = isFull ? "#09090b" : "#fff";
               btn.style.color = isFull ? "#22d3ee" : "#222";
               btn.innerHTML = isFull ? "✕" : "⛶";
@@ -403,11 +620,14 @@ export default function GoesMap() {
             L.DomEvent.on(btn, "click", (e: Event) => {
               e.preventDefault();
               e.stopPropagation();
-              const el = map.getContainer();
+              // El fullscreen target es el contenedor completo (rootRef), no
+              // solo el lienzo de Leaflet, para que la barra de canales,
+              // clima y sismos siga visible y editable en pantalla completa.
+              const el = rootRef.current;
               if (document.fullscreenElement) {
                 document.exitFullscreen();
               } else {
-                el.requestFullscreen();
+                el?.requestFullscreen();
               }
             });
 
@@ -418,6 +638,7 @@ export default function GoesMap() {
 
         new FullscreenControl().addTo(map);
         weatherLayerGroupRef.current = L.layerGroup().addTo(map);
+        quakeLayerGroupRef.current = L.layerGroup().addTo(map);
       } catch (error) {
         console.error("Error al inicializar el mapa:", error);
         setMapError("No se pudo cargar el mapa satelital. Verifica tu conexión a internet.");
@@ -432,6 +653,7 @@ export default function GoesMap() {
         mapInstanceRef.current = null;
         goesLayerRef.current = null;
         weatherLayerGroupRef.current = null;
+        quakeLayerGroupRef.current = null;
       }
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -492,11 +714,7 @@ export default function GoesMap() {
         closeButton: false,
         maxWidth: 300,
         offset: [0, -8],
-      }).setContent(`
-        <div style="font-family:monospace;font-size:11px;color:#a1a1aa;padding:6px 8px">
-          <span style="color:#22d3ee">⌛</span> Cargando datos de <b style="color:#fff">${city.name}</b>…
-        </div>
-      `);
+      }).setContent(buildLoadingContent(city.name));
 
       marker.bindPopup(popup);
 
@@ -507,9 +725,9 @@ export default function GoesMap() {
         e.target.openPopup();
         try {
           const data = await fetchWeatherData(city.lat, city.lng);
-          popup.setContent(buildPopupHtml(city.name, data));
+          popup.setContent(buildPopupContent(city.name, data));
         } catch {
-          popup.setContent(`<div style="font-family:monospace;font-size:11px;color:#f87171;padding:6px 8px">Error al obtener datos climáticos.</div>`);
+          popup.setContent(buildErrorContent());
         }
       };
 
@@ -524,9 +742,9 @@ export default function GoesMap() {
           e.target.openPopup();
           try {
             const data = await fetchWeatherData(city.lat, city.lng);
-            popup.setContent(buildPopupHtml(city.name, data));
+            popup.setContent(buildPopupContent(city.name, data));
           } catch {
-            popup.setContent(`<div style="font-family:monospace;font-size:11px;color:#f87171;padding:6px 8px">Error al obtener datos climáticos.</div>`);
+            popup.setContent(buildErrorContent());
           }
         } else {
           e.target.closePopup();
@@ -540,6 +758,55 @@ export default function GoesMap() {
       group.addLayer(marker);
     });
   }, [showWeather, mounted]);
+
+  useEffect(() => {
+    const L = LRef.current;
+    const group = quakeLayerGroupRef.current;
+    if (!L || !group) return;
+
+    group.clearLayers();
+    if (!showQuakes) return;
+
+    let cancelled = false;
+
+    (async () => {
+      try {
+        const [igcQuakes, usgsFeatures] = await Promise.all([fetchIgcQuakes(), fetchUsgsQuakes()]);
+        if (cancelled) return;
+        const merged = mergeQuakes(igcQuakes, usgsFeatures.map(usgsToNormalized));
+        setQuakeError(null);
+        setQuakes(merged);
+
+        merged.forEach((q) => {
+          const color = quakeColor(q.mag);
+          const marker = L.circleMarker([q.lat, q.lon], {
+            radius: quakeRadius(q.mag),
+            color,
+            fillColor: color,
+            fillOpacity: 0.55,
+            weight: 1.5,
+          });
+          marker.bindPopup(buildQuakePopupContent(q), {
+            className: "weather-popup",
+            closeButton: false,
+            maxWidth: 260,
+          });
+          group.addLayer(marker);
+        });
+      } catch {
+        if (!cancelled) setQuakeError("No se pudieron cargar los sismos recientes.");
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [showQuakes, mounted, refreshTick]);
+
+  const latestQuake = useMemo(() => {
+    if (quakes.length === 0) return null;
+    return [...quakes].sort((a, b) => b.time - a.time)[0];
+  }, [quakes]);
 
   if (!mounted) return null;
 
@@ -561,10 +828,10 @@ export default function GoesMap() {
     );
   }
 
-  const activeCount = [showWeather].filter(Boolean).length;
+  const activeCount = [showWeather, showQuakes].filter(Boolean).length;
 
   return (
-    <div className="flex flex-col flex-grow min-h-0">
+    <div ref={rootRef} className="flex flex-col flex-grow min-h-0 bg-zinc-950">
       <div className="bg-zinc-900/90 backdrop-blur-sm border-b border-zinc-800 px-4 py-3 flex flex-wrap items-center gap-2 flex-shrink-0">
         <div className="flex items-center gap-1.5 flex-wrap">
           <span className="text-zinc-400 text-xs font-mono uppercase tracking-wider mr-1">Canal:</span>
@@ -597,6 +864,18 @@ export default function GoesMap() {
           >
             <span>🌡️</span>
             Clima
+          </button>
+
+          <button
+            onClick={() => setShowQuakes((v) => !v)}
+            title={showQuakes ? "Ocultar sismos" : "Mostrar sismos recientes (USGS + IGC-UP)"}
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-mono border transition-all ${showQuakes
+                ? "bg-red-600 text-white border-red-500 shadow-lg shadow-red-900/30 ring-1 ring-red-400/30"
+                : "bg-zinc-800 text-zinc-400 border-zinc-700 hover:border-zinc-500 hover:text-zinc-200"
+              }`}
+          >
+            <span>🌍</span>
+            Sismos
           </button>
         </div>
 
@@ -642,6 +921,41 @@ export default function GoesMap() {
                 </span>
               </div>
             )}
+            {showQuakes && (
+              <div className="bg-red-950/90 border border-red-700 rounded-lg px-3 py-1.5 pointer-events-none">
+                <span className="text-red-400 text-[11px] font-mono flex items-center gap-1.5">
+                  <span className="w-1.5 h-1.5 bg-red-400 rounded-full animate-pulse inline-block" />
+                  Sismos (USGS + IGC-UP) · últimos {QUAKE_LOOKBACK_DAYS} días
+                </span>
+              </div>
+            )}
+            {showQuakes && quakeError && (
+              <div className="bg-red-950/90 border border-red-800 rounded-lg px-3 py-1.5 pointer-events-none">
+                <span className="text-red-400 text-[11px] font-mono">{quakeError}</span>
+              </div>
+            )}
+          </div>
+        )}
+
+        {showQuakes && latestQuake && (
+          <div className="absolute bottom-4 left-3 z-[999] bg-zinc-950/90 border border-red-800/60 rounded-lg px-3 py-2 max-w-[230px]">
+            <div className="text-[10px] font-mono text-red-400 uppercase tracking-wider mb-1">
+              Último sismo detectado
+            </div>
+            <div className="text-xs font-mono text-zinc-200">
+              M {latestQuake.mag != null ? latestQuake.mag.toFixed(1) : "N/D"} · {latestQuake.place ?? "Ubicación desconocida"}
+            </div>
+            <div className="text-[10px] font-mono text-zinc-500 mb-1.5">
+              {quakeTimeAgo(latestQuake.time)} · {latestQuake.source === "igc-up" ? "IGC-UP (Panamá)" : "USGS"}
+            </div>
+            <a
+              href={latestQuake.url}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-[9px] font-mono text-zinc-500 hover:text-cyan-400 pointer-events-auto underline"
+            >
+              Ver detalle →
+            </a>
           </div>
         )}
 
