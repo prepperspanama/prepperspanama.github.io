@@ -4,6 +4,12 @@ on:
   push:
     branches: ["main"]
   workflow_dispatch:
+  schedule:
+    # Refresca los datos sísmicos de IGC-UP (scripts/fetch-igc-quakes.mjs)
+    # reconstruyendo y redesplegando el sitio cada 15 minutos. Si el scrape
+    # falla en un ciclo, el build sigue (no es fatal) y simplemente publica
+    # sin datos nuevos de IGC-UP hasta el próximo intento.
+    - cron: "*/15 * * * *"
 
 permissions:
   contents: read
