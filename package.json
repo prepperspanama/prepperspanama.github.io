@@ -4,7 +4,7 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
-    "build": "node scripts/generate-sw.mjs && node scripts/generate-search-index.mjs && node scripts/fetch-igc-quakes.mjs && next build && node scripts/generate-rss.mjs",
+    "build": "node scripts/generate-sw.mjs && node scripts/generate-search-index.mjs && node scripts/generate-llms-txt.mjs && node scripts/fetch-igc-quakes.mjs && next build && node scripts/generate-rss.mjs",
     "start": "next start",
     "lint": "eslint"
   },

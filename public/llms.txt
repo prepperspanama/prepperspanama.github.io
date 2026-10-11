@@ -1,0 +1,30 @@
+# Preppers Panamá
+
+> Blog y mapa satelital en vivo sobre preparacionismo y resiliencia en Panamá: terremotos, sismos, huracanes, El Niño y microclimas. Incluye guías de primeros auxilios, kits de emergencia y protocolos de acción ante desastres, con foco específico en la geografía y los riesgos propios del país.
+
+## Páginas principales
+
+- [Inicio](https://prepperspanama.github.io/): presentación del sitio y los pilares de preparación.
+- [Blog](https://prepperspanama.github.io/blog/): todos los artículos, organizados por categoría y tag.
+- [Mapa Satelital GOES-19](https://prepperspanama.github.io/mapa/): imágenes satelitales NOAA en vivo, clima por ciudad y sismos recientes (USGS + IGC-UP) en Panamá.
+- [Tags](https://prepperspanama.github.io/tags/): índice de todos los temas cubiertos en el blog.
+- [RSS](https://prepperspanama.github.io/rss.xml): feed de artículos nuevos.
+
+## Terremoto de Panamá (9 de octubre de 2026) y preparación sísmica
+
+- [Cómo Armar tu Kit de Emergencia Sísmica en Panamá](https://prepperspanama.github.io/blog/kit-de-emergencia-sismica/): Nueve puentes caídos, seis provincias sin luz y comunidades aisladas: así quedó Panamá tras el sismo del 9 de octubre. Esta es la guía para armar el kit que te permite sobrevivir 72 horas sin depender de que la ayuda llegue rápido.
+- [Estado de Emergencia y Ayuda Internacional Tras el Terremoto de Panamá](https://prepperspanama.github.io/blog/estado-de-emergencia-terremoto-panama/): Panamá declaró estado de emergencia y destinó $100 millones para atender los daños del terremoto del 9 de octubre. Esto es lo que se sabe de la respuesta oficial, la ayuda internacional y el estado de la infraestructura crítica.
+- [Qué Hacer Antes, Durante y Después de un Sismo en Panamá](https://prepperspanama.github.io/blog/que-hacer-antes-durante-despues-de-un-sismo/): Tras el terremoto de magnitud 7.7 del 9 de octubre, esta es la guía de acción que todo panameño debería conocer: qué hacer antes de que tiemble, durante los segundos que definen tu seguridad, y después, cuando empieza la recuperación.
+- [Ansiedad y Salud Mental Después de un Sismo: Cómo Afrontar el Miedo](https://prepperspanama.github.io/blog/ansiedad-y-salud-mental-despues-de-un-sismo/): Más de 200 réplicas en dos días no solo ponen a prueba la infraestructura: también desgastan la salud mental. Cómo manejar la ansiedad, el insomnio y el miedo tras el terremoto del 9 de octubre, y cómo hablar del tema con los niños.
+- [El Terremoto de Magnitud 7.7 en Panamá: Qué Pasó el 9 de Octubre de 2026](https://prepperspanama.github.io/blog/terremoto-panama-9-octubre-2026/): El sismo más fuerte en más de tres décadas sacudió la Península de Azuero con una magnitud de 7.7. Esto es lo que confirman el USGS y el IGC-UP sobre el epicentro, los daños y la secuencia de réplicas en curso.
+
+## Otros artículos del blog
+
+- [La Importancia de un Botiquín de Primeros Auxilios en Panamá](https://prepperspanama.github.io/blog/importancia-del-botiquin/): En un país con clima tropical, geografía accidentada y acceso limitado a salud en áreas remotas, un botiquín bien equipado puede salvar vidas. Guía completa para armarlo.
+- [El Fenómeno de El Niño en Panamá: Sequía, Incendios y Riesgo Alimentario](https://prepperspanama.github.io/blog/el-nino-y-su-impacto-en-panama/): El Niño amenaza a Panamá con sequías extremas, incendios forestales y crisis alimentaria. Analizamos los eventos históricos de 1997, 2015 y 2023, y cómo prepararse para el próximo ciclo.
+- [Microclimas y Riesgos en Panamá: Por qué el Istmo es Propenso a Desastres](https://prepperspanama.github.io/blog/microclimas-y-riesgos-en-panama/): Panamá es un laboratorio climático de 75,517 km². Analizamos sus 8 microclimas, la matriz de riesgos por provincia y por qué el Istmo ya no es una zona libre de desastres.
+- [¿Qué es ser Prepper? Más allá de los mitos del fin del mundo](https://prepperspanama.github.io/blog/que-es-ser-prepper/): El preparacionismo no es paranoia, es responsabilidad. Analizamos la filosofía prepper y por qué es vital en el siglo XXI.
+
+## Licencia
+
+- [Licencia GPL-3.0](https://prepperspanama.github.io/license/): el código y contenido del sitio están bajo esta licencia.
