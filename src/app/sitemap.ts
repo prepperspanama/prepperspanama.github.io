@@ -1,5 +1,5 @@
 import type { MetadataRoute } from "next";
-import { ALL_POSTS } from "@/lib/posts";
+import { ALL_POSTS, getAllCategories, getAllTags } from "@/lib/posts";
 import { SITE_URL } from "@/lib/constants";
 import { getTotalPages } from "@/components/BlogList";
 
@@ -22,7 +22,23 @@ export default function sitemap(): MetadataRoute.Sitemap {
     { url: `${SITE_URL}/`, lastModified: new Date(), changeFrequency: "monthly" as const, priority: 1 },
     { url: `${SITE_URL}/blog/`, lastModified: new Date(), changeFrequency: "weekly" as const, priority: 0.8 },
     { url: `${SITE_URL}/mapa/`, lastModified: new Date(), changeFrequency: "daily" as const, priority: 0.5 },
+    { url: `${SITE_URL}/tags/`, lastModified: new Date(), changeFrequency: "weekly" as const, priority: 0.4 },
+    { url: `${SITE_URL}/license/`, lastModified: new Date(), changeFrequency: "yearly" as const, priority: 0.1 },
   ];
+
+  const categoryPages = getAllCategories().map((category) => ({
+    url: `${SITE_URL}/blog/categoria/${category.toLowerCase()}/`,
+    lastModified: new Date(),
+    changeFrequency: "weekly" as const,
+    priority: 0.5,
+  }));
+
+  const tagPages = getAllTags().map((tag) => ({
+    url: `${SITE_URL}/blog/tag/${tag.toLowerCase()}/`,
+    lastModified: new Date(),
+    changeFrequency: "weekly" as const,
+    priority: 0.3,
+  }));
 
   const totalPages = getTotalPages();
   const paginationPages = totalPages > 1
@@ -41,5 +57,5 @@ export default function sitemap(): MetadataRoute.Sitemap {
     priority: 0.6,
   }));
 
-  return [...staticPages, ...paginationPages, ...blogPosts];
+  return [...staticPages, ...paginationPages, ...categoryPages, ...tagPages, ...blogPosts];
 }

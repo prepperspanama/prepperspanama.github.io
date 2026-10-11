@@ -59,11 +59,13 @@ function loadAllPosts(): Post[] {
 export const ALL_POSTS: Post[] = loadAllPosts();
 
 export function getPostsByCategory(category: string) {
-  return ALL_POSTS.filter((p) => p.category === category);
+  const needle = category.toLowerCase();
+  return ALL_POSTS.filter((p) => p.category.toLowerCase() === needle);
 }
 
 export function getPostsByTag(tag: string) {
-  return ALL_POSTS.filter((p) => p.tags.includes(tag));
+  const needle = tag.toLowerCase();
+  return ALL_POSTS.filter((p) => p.tags.some((t) => t.toLowerCase() === needle));
 }
 
 export function getAllCategories() {
