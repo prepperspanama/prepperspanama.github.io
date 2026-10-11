@@ -68,18 +68,26 @@ export default function RootLayout({
         {/*
           Security headers via meta tag: GitHub Pages serves this as a static
           export with no server, so custom HTTP headers aren't possible and
-          this meta tag is the only way to ship a CSP. Two consequences:
+          this meta tag is the only way to ship a CSP. Consequences:
           - `frame-ancestors` has no effect here (the CSP spec requires it be
             delivered as an HTTP header; browsers ignore it in a meta tag),
             so it's kept only as documentation of intent, not enforcement.
-          - `unsafe-inline` on script-src is required because there's no
-            server to mint per-request nonces for Next's hydration script and
-            the per-page JSON-LD <script> tags. `unsafe-eval` is NOT needed
+            Same applies to HSTS, COOP and X-Frame-Options: none of them have
+            a meta-tag form, so they can't be shipped from this static host
+            at all.
+          - script-src has no `'unsafe-inline'`. There's no server to mint
+            per-request nonces for Next's hydration/RSC payload scripts, so
+            `scripts/harden-csp.mjs` (run after `next build`) computes a
+            SHA-256 hash per inline <script> on each generated page and
+            substitutes them for the `__CSP_SCRIPT_HASHES__` token below.
+            The JSON-LD <script type="application/ld+json"> tags don't need
+            hashes: that type isn't classified as a script by CSP, so
+            script-src never governs them. `unsafe-eval` is NOT needed
             (production builds don't eval) and has been removed.
         */}
         <meta
           httpEquiv="Content-Security-Policy"
-          content="default-src 'self'; script-src 'self' 'unsafe-inline' https://cloud.umami.is; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https://server.arcgisonline.com https://nowcoast.noaa.gov https://unpkg.com https://satellitemaps.nesdis.noaa.gov; font-src 'self' data:; connect-src 'self' https://api.open-meteo.com https://earthquake.usgs.gov https://cloud.umami.is https://gateway.umami.is; object-src 'none'; base-uri 'self'; frame-src 'none'; frame-ancestors 'none'; form-action 'self';"
+          content="default-src 'self'; script-src 'self' https://cloud.umami.is __CSP_SCRIPT_HASHES__; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https://server.arcgisonline.com https://nowcoast.noaa.gov https://unpkg.com https://satellitemaps.nesdis.noaa.gov; font-src 'self' data:; connect-src 'self' https://api.open-meteo.com https://earthquake.usgs.gov https://cloud.umami.is https://gateway.umami.is; object-src 'none'; base-uri 'self'; frame-src 'none'; frame-ancestors 'none'; form-action 'self';"
         />
         <meta name="referrer" content="strict-origin-when-cross-origin" />
         <link rel="alternate" type="application/rss+xml" title={`${SITE_NAME} — RSS`} href="/rss.xml" />
