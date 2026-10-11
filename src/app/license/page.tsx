@@ -1,8 +1,11 @@
 import Link from "next/link"
 
 export const metadata = {
-  title: "Licencia GPL-3.0 | Preppers Panamá",
+  title: "Licencia GPL-3.0",
   description: "GNU General Public License v3.0 — términos y condiciones de uso del sitio.",
+  alternates: {
+    canonical: "/license/",
+  },
 }
 
 export default function LicensePage() {

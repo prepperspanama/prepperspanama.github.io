@@ -19,6 +19,9 @@ export async function generateMetadata({ params }: PageProps) {
   return {
     title: `Categoría: ${decoded}`,
     description: `Artículos sobre ${decoded.toLowerCase()} en Preppers Panamá.`,
+    alternates: {
+      canonical: `/blog/categoria/${category}/`,
+    },
   };
 }
 

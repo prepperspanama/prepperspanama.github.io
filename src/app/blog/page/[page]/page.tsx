@@ -25,7 +25,7 @@ export async function generateMetadata({ params }: PageProps) {
   }
 
   return {
-    title: `Blog — Página ${pageNum} | Preppers Panamá`,
+    title: `Blog — Página ${pageNum}`,
     description: `Artículos sobre preparación, tecnología y supervivencia — Página ${pageNum}.`,
     alternates: {
       canonical: `/blog/page/${pageNum}/`,

@@ -1,9 +1,12 @@
 import type { Metadata } from "next";
 
 export const metadata: Metadata = {
-  title: "Mapa Satelital GOES-19 — Preppers Panamá",
+  title: "Mapa Satelital GOES-19",
   description:
     "Mapa interactivo de Panamá con imágenes satelitales en tiempo real del satélite GOES-19 de la NOAA",
+  alternates: {
+    canonical: "/mapa/",
+  },
 };
 
 import MapContainer from "./MapContainer";

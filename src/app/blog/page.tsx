@@ -4,8 +4,11 @@ import { SITE_URL } from "@/lib/constants";
 import BlogList, { getPaginatedPosts } from "@/components/BlogList";
 
 export const metadata = {
-  title: "Blog | Preppers Panamá",
+  title: "Blog",
   description: "Artículos sobre preparación, tecnología y supervivencia.",
+  alternates: {
+    canonical: "/blog/",
+  },
 };
 
 export default function BlogPage() {

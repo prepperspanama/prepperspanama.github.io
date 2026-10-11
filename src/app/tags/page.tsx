@@ -3,8 +3,11 @@ import { getAllTags, ALL_POSTS } from "@/lib/posts";
 import { SITE_URL } from "@/lib/constants";
 
 export const metadata = {
-  title: "Tags | Preppers Panamá",
+  title: "Tags",
   description: "Explora todos los temas del blog organizados por etiquetas.",
+  alternates: {
+    canonical: "/tags/",
+  },
 };
 
 export default function TagsPage() {

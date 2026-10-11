@@ -18,6 +18,9 @@ export async function generateMetadata({ params }: PageProps) {
   return {
     title: `Tag: #${tag}`,
     description: `Artículos etiquetados con #${tag} en Preppers Panamá.`,
+    alternates: {
+      canonical: `/blog/tag/${tag}/`,
+    },
   };
 }
 
