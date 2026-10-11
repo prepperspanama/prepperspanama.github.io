@@ -298,36 +298,46 @@ function buildErrorContent(): HTMLDivElement {
 // Caja que engloba Panamá y su plataforma sísmica continental, usada para
 // acotar la consulta al catálogo del USGS a la región de interés.
 const QUAKE_BBOX = { minLat: 6, maxLat: 10.5, minLon: -84, maxLon: -77 };
-const QUAKE_LOOKBACK_DAYS = 30;
 const QUAKE_MIN_MAGNITUDE = 2;
-const QUAKE_CACHE_KEY = "preppers-quake-cache";
+const QUAKE_CACHE_KEY_PREFIX = "preppers-quake-cache-";
 const QUAKE_CACHE_TTL = 3 * 60 * 1000;
 
-function getQuakeCache(): QuakeCacheEntry | null {
+const QUAKE_RANGES = [
+  { days: 1, label: "24h" },
+  { days: 7, label: "7d" },
+  { days: 30, label: "30d" },
+] as const;
+type QuakeRangeDays = (typeof QUAKE_RANGES)[number]["days"];
+
+function quakeRangeLabel(days: QuakeRangeDays): string {
+  return QUAKE_RANGES.find((r) => r.days === days)?.label ?? `${days}d`;
+}
+
+function getQuakeCache(days: number): QuakeCacheEntry | null {
   try {
-    const raw = localStorage.getItem(QUAKE_CACHE_KEY);
+    const raw = localStorage.getItem(QUAKE_CACHE_KEY_PREFIX + days);
     if (raw) return JSON.parse(raw);
   } catch {}
   return null;
 }
 
-function setQuakeCache(data: UsgsQuakeFeature[]) {
+function setQuakeCache(days: number, data: UsgsQuakeFeature[]) {
   try {
-    localStorage.setItem(QUAKE_CACHE_KEY, JSON.stringify({ data, ts: Date.now() }));
+    localStorage.setItem(QUAKE_CACHE_KEY_PREFIX + days, JSON.stringify({ data, ts: Date.now() }));
   } catch {}
 }
 
-async function fetchUsgsQuakes(): Promise<UsgsQuakeFeature[]> {
-  const cache = getQuakeCache();
+async function fetchUsgsQuakes(days: number): Promise<UsgsQuakeFeature[]> {
+  const cache = getQuakeCache(days);
   if (cache && Date.now() - cache.ts < QUAKE_CACHE_TTL) {
     return cache.data;
   }
-  const starttime = new Date(Date.now() - QUAKE_LOOKBACK_DAYS * 24 * 60 * 60 * 1000).toISOString();
+  const starttime = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
   const url = `https://earthquake.usgs.gov/fdsnws/event/1/query?format=geojson&starttime=${starttime}&minlatitude=${QUAKE_BBOX.minLat}&maxlatitude=${QUAKE_BBOX.maxLat}&minlongitude=${QUAKE_BBOX.minLon}&maxlongitude=${QUAKE_BBOX.maxLon}&minmagnitude=${QUAKE_MIN_MAGNITUDE}&orderby=time`;
   const res = await fetch(url);
   if (!res.ok) throw new Error("Error al obtener datos sísmicos");
   const json: UsgsQuakeResponse = await res.json();
-  setQuakeCache(json.features);
+  setQuakeCache(days, json.features);
   return json.features;
 }
 
@@ -351,12 +361,13 @@ function usgsToNormalized(f: UsgsQuakeFeature): NormalizedQuake {
 // tabla pública del Instituto de Geociencias de la Universidad de Panamá
 // (IGC-UP, la red sísmica nacional). Es un archivo estático same-origin
 // porque esa página no tiene API ni CORS para leerse directo del navegador.
-async function fetchIgcQuakes(): Promise<NormalizedQuake[]> {
+async function fetchIgcQuakes(days: number): Promise<NormalizedQuake[]> {
   try {
     const res = await fetch("/quakes-igc.json");
     if (!res.ok) return [];
     const json: IgcQuakesResponse = await res.json();
-    return json.quakes;
+    const cutoff = Date.now() - days * 24 * 60 * 60 * 1000;
+    return json.quakes.filter((q) => q.time >= cutoff);
   } catch {
     return [];
   }
@@ -393,7 +404,7 @@ function quakeColor(mag: number | null): string {
   const m = mag ?? 0;
   if (m >= 6) return "#ef4444";
   if (m >= 4.5) return "#f97316";
-  if (m >= 3) return "#facd22";
+  if (m >= 3) return "#facc15";
   return "#4ade80";
 }
 
@@ -419,7 +430,7 @@ function quakeTimeAgo(ms: number): string {
   return `hace ${Math.floor(diffHours / 24)} d`;
 }
 
-function buildQuakePopupContent(q: NormalizedQuake): HTMLDivElement {
+function buildQuakePopupContent(q: NormalizedQuake, onCenter: () => void): HTMLDivElement {
   const { mag, place, time, status, depthKm, url, source } = q;
   const color = quakeColor(mag);
   const sourceLabel = source === "igc-up" ? "IGC-UP (Panamá)" : "USGS";
@@ -441,13 +452,23 @@ function buildQuakePopupContent(q: NormalizedQuake): HTMLDivElement {
     mkEl("div", "font-size:9px;color:#52525b;margin-top:4px;text-transform:uppercase;letter-spacing:0.06em", `Fuente: ${sourceLabel}`)
   );
 
+  const actions = mkEl("div", "display:flex;gap:10px;margin-top:8px");
+
+  const centerBtn = document.createElement("button");
+  centerBtn.type = "button";
+  centerBtn.textContent = "Centrar aquí";
+  centerBtn.style.cssText = "font-size:10px;color:#a1a1aa;background:none;border:none;padding:0;cursor:pointer;text-decoration:underline;font-family:inherit";
+  centerBtn.addEventListener("click", onCenter);
+
   const link = document.createElement("a");
   link.href = url;
   link.target = "_blank";
   link.rel = "noopener noreferrer";
   link.textContent = "Ver detalle →";
-  link.style.cssText = "display:block;margin-top:8px;font-size:10px;color:#22d3ee;text-decoration:none";
-  body.appendChild(link);
+  link.style.cssText = "font-size:10px;color:#22d3ee;text-decoration:none";
+
+  actions.append(centerBtn, link);
+  body.appendChild(actions);
 
   root.append(header, body);
   return root;
@@ -457,6 +478,47 @@ type LeafletInstance = typeof import("leaflet");
 type LeafletMap = import("leaflet").Map;
 type LeafletLayerGroup = import("leaflet").LayerGroup;
 type LeafletTileLayer = import("leaflet").TileLayer;
+type LeafletCircleMarker = import("leaflet").CircleMarker;
+
+// Mantiene la URL en sync con el centro/zoom/canal actuales del mapa, para
+// que copiar el enlace del navegador siempre comparta la vista exacta que
+// se está viendo. Usa replaceState (no pushState) para no ensuciar el
+// historial de navegación con una entrada por cada pan/zoom.
+function updateShareUrl(map: LeafletMap, layerId: string) {
+  try {
+    const center = map.getCenter();
+    const url = new URL(window.location.href);
+    url.searchParams.set("lat", center.lat.toFixed(4));
+    url.searchParams.set("lng", center.lng.toFixed(4));
+    url.searchParams.set("zoom", String(map.getZoom()));
+    url.searchParams.set("layer", layerId);
+    window.history.replaceState(null, "", url.toString());
+  } catch {}
+}
+
+const MAP_PREFS_KEY = "preppers-map-prefs";
+
+interface MapPrefs {
+  layerId: string;
+  opacity: number;
+  showWeather: boolean;
+  showQuakes: boolean;
+  quakeRangeDays: QuakeRangeDays;
+}
+
+function loadMapPrefs(): Partial<MapPrefs> {
+  try {
+    const raw = localStorage.getItem(MAP_PREFS_KEY);
+    if (raw) return JSON.parse(raw);
+  } catch {}
+  return {};
+}
+
+function saveMapPrefs(prefs: MapPrefs) {
+  try {
+    localStorage.setItem(MAP_PREFS_KEY, JSON.stringify(prefs));
+  } catch {}
+}
 
 const ORIGIN_X = -20037508.342789244;
 const ORIGIN_Y = 20037508.342789244;
@@ -516,6 +578,7 @@ export default function GoesMap() {
   const LRef = useRef<LeafletInstance | null>(null);
   const weatherLayerGroupRef = useRef<LeafletLayerGroup | null>(null);
   const quakeLayerGroupRef = useRef<LeafletLayerGroup | null>(null);
+  const userLocationMarkerRef = useRef<LeafletCircleMarker | null>(null);
   const [activeLayer, setActiveLayer] = useState<GoesLayer>(GOES_LAYERS[0]);
   const [goesOpacity, setGoesOpacity] = useState(GOES_LAYERS[0].opacity);
   const [isLoading, setIsLoading] = useState(true);
@@ -523,21 +586,55 @@ export default function GoesMap() {
   const [mounted, setMounted] = useState(false);
   const [showWeather, setShowWeather] = useState(false);
   const [showQuakes, setShowQuakes] = useState(false);
+  const [quakeRangeDays, setQuakeRangeDays] = useState<QuakeRangeDays>(7);
   const [quakes, setQuakes] = useState<NormalizedQuake[]>([]);
   const [quakeError, setQuakeError] = useState<string | null>(null);
+  const [locateError, setLocateError] = useState<string | null>(null);
   const [mapError, setMapError] = useState<string | null>(null);
   const [refreshTick, setRefreshTick] = useState(0);
+  const [shareCopied, setShareCopied] = useState(false);
   const goesOpacityRef = useRef(goesOpacity);
+  const activeLayerIdRef = useRef(activeLayer.id);
+  const prefsHydratedRef = useRef(false);
 
   useEffect(() => { goesOpacityRef.current = goesOpacity; }, [goesOpacity]);
+  useEffect(() => { activeLayerIdRef.current = activeLayer.id; }, [activeLayer]);
 
   useEffect(() => {
     /* eslint-disable react-hooks/set-state-in-effect */
     setMounted(true);
     const now = new Date();
     setLastUpdate(now.toLocaleTimeString("es-PA", { hour: "2-digit", minute: "2-digit" }));
+
+    // Restaura preferencias guardadas (canal, opacidad, capas activas, rango
+    // de sismos). Un enlace compartido con ?layer= tiene prioridad sobre lo
+    // guardado, para que abrir una vista compartida muestre ese canal.
+    const prefs = loadMapPrefs();
+    const urlLayerId = new URLSearchParams(window.location.search).get("layer");
+    const layer = GOES_LAYERS.find((l) => l.id === (urlLayerId ?? prefs.layerId));
+    if (layer) {
+      setActiveLayer(layer);
+      setGoesOpacity(prefs.opacity ?? layer.opacity);
+    } else if (prefs.opacity != null) {
+      setGoesOpacity(prefs.opacity);
+    }
+    if (prefs.showWeather) setShowWeather(true);
+    if (prefs.showQuakes) setShowQuakes(true);
+    if (prefs.quakeRangeDays) setQuakeRangeDays(prefs.quakeRangeDays);
+    prefsHydratedRef.current = true;
     /* eslint-enable react-hooks/set-state-in-effect */
   }, []);
+
+  useEffect(() => {
+    if (!mounted || !prefsHydratedRef.current) return;
+    saveMapPrefs({
+      layerId: activeLayer.id,
+      opacity: goesOpacity,
+      showWeather,
+      showQuakes,
+      quakeRangeDays,
+    });
+  }, [mounted, activeLayer, goesOpacity, showWeather, showQuakes, quakeRangeDays]);
 
   useEffect(() => {
     if (!mounted) return;
@@ -563,14 +660,29 @@ export default function GoesMap() {
         const mapElement = mapRef.current;
         if (!mapElement) return;
 
+        // Un enlace compartido (?lat=&lng=&zoom=) centra el mapa exactamente
+        // donde lo dejó quien lo compartió, en vez del centro por defecto.
+        const params = new URLSearchParams(window.location.search);
+        const urlLat = parseFloat(params.get("lat") ?? "");
+        const urlLng = parseFloat(params.get("lng") ?? "");
+        const urlZoom = parseInt(params.get("zoom") ?? "", 10);
+        const initialCenter: [number, number] =
+          Number.isFinite(urlLat) && Number.isFinite(urlLng) ? [urlLat, urlLng] : [8.5, -80.0];
+        const initialZoom = Number.isFinite(urlZoom) ? urlZoom : 7;
+
         const map = L.map(mapElement, {
-          center: [8.5, -80.0],
-          zoom: 7,
+          center: initialCenter,
+          zoom: initialZoom,
           zoomControl: false,
           attributionControl: false,
+          // Renderiza los círculos (sismos, clima, ubicación) en <canvas> en
+          // vez de un nodo SVG por marcador — con 100-300+ sismos a la vez,
+          // esto evita que el DOM y el rendimiento se degraden.
+          preferCanvas: true,
         });
 
         mapInstanceRef.current = map;
+        map.on("moveend", () => updateShareUrl(map, activeLayerIdRef.current));
 
         L.tileLayer(
           "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
@@ -637,6 +749,53 @@ export default function GoesMap() {
         });
 
         new FullscreenControl().addTo(map);
+
+        const LocateControl = L.Control.extend({
+          options: { position: "bottomright" },
+          onAdd: function () {
+            const container = L.DomUtil.create("div", "leaflet-bar leaflet-control");
+            const btn = L.DomUtil.create("a", "", container);
+            btn.innerHTML = "📍";
+            btn.href = "#";
+            btn.title = "Mi ubicación";
+            btn.style.cssText = "font-size:16px;display:flex;align-items:center;justify-content:center;width:34px;height:34px;cursor:pointer;background:#fff;color:#222;";
+
+            L.DomEvent.on(btn, "click", (e: Event) => {
+              e.preventDefault();
+              e.stopPropagation();
+              if (!navigator.geolocation) {
+                setLocateError("Tu navegador no soporta geolocalización.");
+                return;
+              }
+              btn.innerHTML = "⏳";
+              navigator.geolocation.getCurrentPosition(
+                (pos) => {
+                  btn.innerHTML = "📍";
+                  const { latitude, longitude } = pos.coords;
+                  map.setView([latitude, longitude], 12);
+                  userLocationMarkerRef.current?.remove();
+                  userLocationMarkerRef.current = L.circleMarker([latitude, longitude], {
+                    radius: 8,
+                    color: "#22d3ee",
+                    fillColor: "#22d3ee",
+                    fillOpacity: 0.35,
+                    weight: 2,
+                  }).addTo(map);
+                  setLocateError(null);
+                },
+                () => {
+                  btn.innerHTML = "📍";
+                  setLocateError("No se pudo obtener tu ubicación. Revisa los permisos del navegador.");
+                },
+                { enableHighAccuracy: true, timeout: 10000 }
+              );
+            });
+
+            return container;
+          },
+        });
+
+        new LocateControl().addTo(map);
         weatherLayerGroupRef.current = L.layerGroup().addTo(map);
         quakeLayerGroupRef.current = L.layerGroup().addTo(map);
       } catch (error) {
@@ -654,6 +813,7 @@ export default function GoesMap() {
         goesLayerRef.current = null;
         weatherLayerGroupRef.current = null;
         quakeLayerGroupRef.current = null;
+        userLocationMarkerRef.current = null;
       }
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -678,6 +838,7 @@ export default function GoesMap() {
     newLayer.on("loading", handleTileLoading);
 
     setLastUpdate(new Date().toLocaleTimeString("es-PA", { hour: "2-digit", minute: "2-digit" }));
+    updateShareUrl(map, activeLayer.id);
   }, [activeLayer, refreshTick]);
 
   useEffect(() => {
@@ -760,9 +921,10 @@ export default function GoesMap() {
   }, [showWeather, mounted]);
 
   useEffect(() => {
+    const map = mapInstanceRef.current;
     const L = LRef.current;
     const group = quakeLayerGroupRef.current;
-    if (!L || !group) return;
+    if (!map || !L || !group) return;
 
     group.clearLayers();
     if (!showQuakes) return;
@@ -771,7 +933,10 @@ export default function GoesMap() {
 
     (async () => {
       try {
-        const [igcQuakes, usgsFeatures] = await Promise.all([fetchIgcQuakes(), fetchUsgsQuakes()]);
+        const [igcQuakes, usgsFeatures] = await Promise.all([
+          fetchIgcQuakes(quakeRangeDays),
+          fetchUsgsQuakes(quakeRangeDays),
+        ]);
         if (cancelled) return;
         const merged = mergeQuakes(igcQuakes, usgsFeatures.map(usgsToNormalized));
         setQuakeError(null);
@@ -786,7 +951,11 @@ export default function GoesMap() {
             fillOpacity: 0.55,
             weight: 1.5,
           });
-          marker.bindPopup(buildQuakePopupContent(q), {
+          const popupContent = buildQuakePopupContent(q, () => {
+            map.setView([q.lat, q.lon], 11);
+            marker.closePopup();
+          });
+          marker.bindPopup(popupContent, {
             className: "weather-popup",
             closeButton: false,
             maxWidth: 260,
@@ -801,7 +970,7 @@ export default function GoesMap() {
     return () => {
       cancelled = true;
     };
-  }, [showQuakes, mounted, refreshTick]);
+  }, [showQuakes, mounted, refreshTick, quakeRangeDays]);
 
   const latestQuake = useMemo(() => {
     if (quakes.length === 0) return null;
@@ -877,7 +1046,43 @@ export default function GoesMap() {
             <span>🌍</span>
             Sismos
           </button>
+
+          {showQuakes && (
+            <div className="flex items-center gap-0.5 bg-zinc-800 border border-zinc-700 rounded-lg p-0.5">
+              {QUAKE_RANGES.map((r) => (
+                <button
+                  key={r.days}
+                  onClick={() => setQuakeRangeDays(r.days)}
+                  className={`px-2 py-1 rounded text-[10px] font-mono transition-all ${quakeRangeDays === r.days
+                      ? "bg-red-600 text-white"
+                      : "text-zinc-400 hover:text-zinc-200"
+                    }`}
+                >
+                  {r.label}
+                </button>
+              ))}
+            </div>
+          )}
         </div>
+
+        <span className="w-px h-6 bg-zinc-700 hidden sm:block" />
+
+        <button
+          onClick={() => {
+            navigator.clipboard
+              .writeText(window.location.href)
+              .then(() => {
+                setShareCopied(true);
+                setTimeout(() => setShareCopied(false), 2000);
+              })
+              .catch(() => {});
+          }}
+          title="Copiar enlace a esta vista del mapa"
+          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-mono border transition-all bg-zinc-800 text-zinc-400 border-zinc-700 hover:border-zinc-500 hover:text-zinc-200"
+        >
+          <span>{shareCopied ? "✅" : "🔗"}</span>
+          {shareCopied ? "¡Copiado!" : "Compartir"}
+        </button>
 
         <div className="flex items-center gap-2 ml-auto">
           <span className="text-zinc-400 text-xs font-mono hidden sm:inline">Opac:</span>
@@ -911,7 +1116,7 @@ export default function GoesMap() {
       <div className="relative flex-grow min-h-0">
         <div ref={mapRef} className="absolute inset-0" />
 
-        {activeCount > 0 && (
+        {(activeCount > 0 || locateError) && (
           <div className="absolute top-3 left-3 z-[999] flex flex-col gap-1.5 max-w-[220px]">
             {showWeather && (
               <div className="bg-emerald-950/90 border border-emerald-700 rounded-lg px-3 py-1.5 pointer-events-none">
@@ -925,7 +1130,7 @@ export default function GoesMap() {
               <div className="bg-red-950/90 border border-red-700 rounded-lg px-3 py-1.5 pointer-events-none">
                 <span className="text-red-400 text-[11px] font-mono flex items-center gap-1.5">
                   <span className="w-1.5 h-1.5 bg-red-400 rounded-full animate-pulse inline-block" />
-                  Sismos (USGS + IGC-UP) · últimos {QUAKE_LOOKBACK_DAYS} días
+                  {quakes.length} sismos (USGS + IGC-UP) · últimos {quakeRangeLabel(quakeRangeDays)}
                 </span>
               </div>
             )}
@@ -934,6 +1139,26 @@ export default function GoesMap() {
                 <span className="text-red-400 text-[11px] font-mono">{quakeError}</span>
               </div>
             )}
+            {locateError && (
+              <div className="bg-amber-950/90 border border-amber-800 rounded-lg px-3 py-1.5">
+                <span className="text-amber-400 text-[11px] font-mono flex items-center justify-between gap-2">
+                  {locateError}
+                  <button onClick={() => setLocateError(null)} className="text-amber-500 hover:text-amber-300 pointer-events-auto">✕</button>
+                </span>
+              </div>
+            )}
+          </div>
+        )}
+
+        {showQuakes && (
+          <div className="absolute top-3 right-3 z-[999] bg-zinc-950/90 border border-zinc-700 rounded-lg px-3 py-2">
+            <div className="text-[9px] font-mono text-zinc-500 uppercase tracking-wider mb-1.5">Magnitud</div>
+            <div className="flex flex-col gap-1 text-[10px] font-mono text-zinc-400">
+              <span className="flex items-center gap-1.5"><span className="w-2 h-2 rounded-full inline-block" style={{ background: "#4ade80" }} /> &lt; 3</span>
+              <span className="flex items-center gap-1.5"><span className="w-2 h-2 rounded-full inline-block" style={{ background: "#facc15" }} /> 3 – 4.5</span>
+              <span className="flex items-center gap-1.5"><span className="w-2 h-2 rounded-full inline-block" style={{ background: "#f97316" }} /> 4.5 – 6</span>
+              <span className="flex items-center gap-1.5"><span className="w-2 h-2 rounded-full inline-block" style={{ background: "#ef4444" }} /> ≥ 6</span>
+            </div>
           </div>
         )}
 
@@ -948,14 +1173,22 @@ export default function GoesMap() {
             <div className="text-[10px] font-mono text-zinc-500 mb-1.5">
               {quakeTimeAgo(latestQuake.time)} · {latestQuake.source === "igc-up" ? "IGC-UP (Panamá)" : "USGS"}
             </div>
-            <a
-              href={latestQuake.url}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="text-[9px] font-mono text-zinc-500 hover:text-cyan-400 pointer-events-auto underline"
-            >
-              Ver detalle →
-            </a>
+            <div className="flex items-center gap-3">
+              <button
+                onClick={() => mapInstanceRef.current?.setView([latestQuake.lat, latestQuake.lon], 11)}
+                className="text-[9px] font-mono text-zinc-500 hover:text-cyan-400 pointer-events-auto underline"
+              >
+                Centrar aquí
+              </button>
+              <a
+                href={latestQuake.url}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-[9px] font-mono text-zinc-500 hover:text-cyan-400 pointer-events-auto underline"
+              >
+                Ver detalle →
+              </a>
+            </div>
           </div>
         )}
 
