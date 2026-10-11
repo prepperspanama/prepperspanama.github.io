@@ -6,6 +6,7 @@ import Navigation from "@/components/Navigation";
 import PWARegistration from "@/components/PWARegistration";
 import ReadingProgress from "@/components/ReadingProgress";
 import BackToTop from "@/components/BackToTop";
+import WebMcpSearchTool from "@/components/WebMcpSearchTool";
 import { SITE_URL, SITE_NAME, SITE_DESCRIPTION } from "@/lib/constants";
 import logo from "../../public/logo.webp";
 
@@ -78,9 +79,10 @@ export default function RootLayout({
         */}
         <meta
           httpEquiv="Content-Security-Policy"
-          content="default-src 'self'; script-src 'self' 'unsafe-inline' https://cloud.umami.is; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https://server.arcgisonline.com https://nowcoast.noaa.gov https://unpkg.com https://satellitemaps.nesdis.noaa.gov; font-src 'self' data:; connect-src 'self' https://api.open-meteo.com https://earthquake.usgs.gov https://cloud.umami.is; object-src 'none'; base-uri 'self'; frame-src 'none'; frame-ancestors 'none'; form-action 'self';"
+          content="default-src 'self'; script-src 'self' 'unsafe-inline' https://cloud.umami.is; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https://server.arcgisonline.com https://nowcoast.noaa.gov https://unpkg.com https://satellitemaps.nesdis.noaa.gov; font-src 'self' data:; connect-src 'self' https://api.open-meteo.com https://earthquake.usgs.gov https://cloud.umami.is https://gateway.umami.is; object-src 'none'; base-uri 'self'; frame-src 'none'; frame-ancestors 'none'; form-action 'self';"
         />
         <meta name="referrer" content="strict-origin-when-cross-origin" />
+        <link rel="alternate" type="application/rss+xml" title={`${SITE_NAME} — RSS`} href="/rss.xml" />
         <script defer src="https://cloud.umami.is/script.js" data-website-id="91fd4640-1243-4498-9645-263f5c1ee5dd"></script>
       </head>
       <body className="min-h-full flex flex-col bg-zinc-950 text-zinc-100">
@@ -91,6 +93,7 @@ export default function RootLayout({
           Saltar al contenido principal
         </a>
         <PWARegistration />
+        <WebMcpSearchTool />
         <ReadingProgress />
         <Navigation />
         <main id="main-content" className="flex-grow">{children}</main>

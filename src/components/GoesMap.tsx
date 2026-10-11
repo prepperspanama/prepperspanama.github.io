@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import { getWebMcpContext } from "@/lib/webmcp";
 
 interface City {
   lat: number;
@@ -599,6 +600,96 @@ export default function GoesMap() {
 
   useEffect(() => { goesOpacityRef.current = goesOpacity; }, [goesOpacity]);
   useEffect(() => { activeLayerIdRef.current = activeLayer.id; }, [activeLayer]);
+
+  // Expone el clima por ciudad y los sismos recientes como herramientas
+  // WebMCP mientras el mapa está montado, reusando las mismas funciones de
+  // fetch/caché que ya usan los popups. Se desregistran al desmontar para
+  // que no queden herramientas "vivas" apuntando a un componente que ya no
+  // existe si el usuario navega a otra página.
+  useEffect(() => {
+    const modelContext = getWebMcpContext();
+    if (!modelContext) return;
+
+    modelContext.registerTool({
+      name: "getPanamaWeather",
+      description:
+        "Obtiene el clima actual y el pronóstico del día para una ciudad panameña cubierta por el mapa de Preppers Panamá (ej. 'David', 'Boquete', 'Ciudad de Panamá', 'Bocas del Toro').",
+      inputSchema: {
+        type: "object",
+        properties: {
+          city: {
+            type: "string",
+            description: "Nombre (o parte del nombre) de la ciudad panameña a consultar",
+          },
+        },
+        required: ["city"],
+      },
+      annotations: { readOnlyHint: true },
+      async execute(input: { city: string }) {
+        const needle = input.city.toLowerCase();
+        const city = PANAMA_CITIES.find((c) => c.name.toLowerCase().includes(needle));
+        if (!city) {
+          return {
+            error: `No se encontró "${input.city}" entre las ciudades monitoreadas.`,
+            availableCities: PANAMA_CITIES.map((c) => c.name),
+          };
+        }
+        const data = await fetchWeatherData(city.lat, city.lng);
+        return {
+          city: city.name,
+          temperatureC: data.current.temperature_2m,
+          feelsLikeC: data.current.apparent_temperature,
+          humidityPercent: data.current.relative_humidity_2m,
+          windKmh: data.current.wind_speed_10m,
+          precipitationMm: data.current.precipitation,
+          condition: wmoToLabel(data.current.weather_code).desc,
+          todayMaxC: data.daily.temperature_2m_max[0],
+          todayMinC: data.daily.temperature_2m_min[0],
+          rainProbabilityPercent: data.daily.precipitation_probability_max[0],
+        };
+      },
+    });
+
+    modelContext.registerTool({
+      name: "getRecentEarthquakes",
+      description:
+        "Obtiene los sismos recientes en Panamá y alrededores, combinando el catálogo del USGS y el del Instituto de Geociencias de la Universidad de Panamá (IGC-UP). Útil para responder preguntas sobre actividad sísmica actual o reciente.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          days: { type: "number", description: "Días hacia atrás a consultar: 1, 7 o 30 (por defecto 7)" },
+          minMagnitude: { type: "number", description: "Magnitud mínima a incluir (por defecto 2)" },
+        },
+      },
+      annotations: { readOnlyHint: true },
+      async execute(input: { days?: number; minMagnitude?: number }) {
+        const days = ([1, 7, 30] as const).includes(input.days as 1 | 7 | 30)
+          ? (input.days as QuakeRangeDays)
+          : 7;
+        const [igc, usgsFeatures] = await Promise.all([fetchIgcQuakes(days), fetchUsgsQuakes(days)]);
+        const merged = mergeQuakes(igc, usgsFeatures.map(usgsToNormalized))
+          .filter((q) => (q.mag ?? 0) >= (input.minMagnitude ?? QUAKE_MIN_MAGNITUDE))
+          .sort((a, b) => b.time - a.time);
+        return {
+          count: merged.length,
+          rangeDays: days,
+          earthquakes: merged.slice(0, 20).map((q) => ({
+            magnitude: q.mag,
+            place: q.place,
+            time: new Date(q.time).toISOString(),
+            depthKm: q.depthKm,
+            source: q.source,
+            url: q.url,
+          })),
+        };
+      },
+    });
+
+    return () => {
+      modelContext.unregisterTool?.("getPanamaWeather");
+      modelContext.unregisterTool?.("getRecentEarthquakes");
+    };
+  }, []);
 
   useEffect(() => {
     /* eslint-disable react-hooks/set-state-in-effect */
