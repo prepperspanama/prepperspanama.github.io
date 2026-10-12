@@ -97,6 +97,37 @@ interface IgcQuakesResponse {
   quakes: NormalizedQuake[];
 }
 
+interface PlateBoundaryProperties {
+  Name: string;
+  PlateA: string;
+  PlateB: string;
+  Type: string;
+}
+
+interface NhcForecastPointProperties {
+  stormname: string;
+  stormtype: string;
+  maxwind: number;
+  gust: number;
+  mslp: number;
+  tau: number;
+  datelbl: string;
+  tcdir: number;
+  tcspd: number;
+  ssnum: number;
+  basin: string;
+  binnumber: string;
+}
+
+interface ActiveCyclone {
+  binnumber: string;
+  name: string;
+  points: import("geojson").FeatureCollection<import("geojson").Point, NhcForecastPointProperties>;
+  track: import("geojson").FeatureCollection<import("geojson").LineString> | null;
+  cone: import("geojson").FeatureCollection<import("geojson").Polygon> | null;
+  pastTrack: import("geojson").FeatureCollection<import("geojson").LineString> | null;
+}
+
 const GOES_LAYERS: GoesLayer[] = [
   {
     id: "geocolor",
@@ -374,6 +405,34 @@ async function fetchIgcQuakes(days: number): Promise<NormalizedQuake[]> {
   }
 }
 
+type PlateBoundaryCollection = import("geojson").FeatureCollection<
+  import("geojson").LineString,
+  PlateBoundaryProperties
+>;
+
+// Límites de placas tectónicas (modelo PB2002 de Peter Bird, 2003), horneado
+// en build-time en public/tectonic-plates.json porque es un dataset de
+// referencia que prácticamente no cambia — no tiene sentido re-descargarlo
+// en cada build como sí ocurre con los sismos. Se cachea en memoria porque
+// es la misma data sin importar cuántas veces se prenda/apague la capa.
+const PLATE_BOUNDARIES_ATTRIBUTION = "Límites de placas: Peter Bird (2003) vía Nordpil/Hugo Ahlenius";
+let platesCache: Promise<PlateBoundaryCollection> | null = null;
+
+async function fetchTectonicPlates(): Promise<PlateBoundaryCollection> {
+  if (!platesCache) {
+    platesCache = fetch("/tectonic-plates.json")
+      .then((res) => {
+        if (!res.ok) throw new Error("Error al obtener límites de placas tectónicas");
+        return res.json();
+      })
+      .catch((err) => {
+        platesCache = null;
+        throw err;
+      });
+  }
+  return platesCache;
+}
+
 const DEDUPE_TIME_MS = 5 * 60 * 1000;
 const DEDUPE_DIST_KM = 50;
 
@@ -409,8 +468,15 @@ function quakeColor(mag: number | null): string {
   return "#4ade80";
 }
 
-function quakeRadius(mag: number | null): number {
-  return Math.max(4, (mag ?? 1) * 2.6);
+// Tamaño de la insignia rectangular de un sismo, en px. Escala suavemente
+// con la magnitud para mantener algo de jerarquía visual aun antes de leer
+// el número dentro del rectángulo.
+function quakeBadgeSize(mag: number | null): { width: number; height: number } {
+  const m = mag ?? 1;
+  return {
+    width: Math.round(Math.max(26, Math.min(44, 22 + m * 3))),
+    height: Math.round(Math.max(18, Math.min(28, 14 + m * 2))),
+  };
 }
 
 function formatQuakeTime(ms: number): string {
@@ -475,6 +541,127 @@ function buildQuakePopupContent(q: NormalizedQuake, onCenter: () => void): HTMLD
   return root;
 }
 
+// Capa de ciclones tropicales del NOAA National Hurricane Center. El
+// servicio expone hasta 5 "casillas" de tormenta simultánea por cuenca
+// (AT1-5 Atlántico/Caribe, EP1-5 Pacífico oriental), cada una con el mismo
+// bloque de 26 sub-capas en IDs consecutivos — ver layers.id en
+// https://mapservices.weather.noaa.gov/tropical/rest/services/tropical/NHC_tropical_weather/MapServer?f=json.
+// Se omite la cuenca CP (Pacífico central / Hawái): no es relevante para
+// Panamá y evita 5 consultas de más en cada refresco.
+const NHC_MAPSERVER = "https://mapservices.weather.noaa.gov/tropical/rest/services/tropical/NHC_tropical_weather/MapServer";
+const NHC_BASIN_SLOT_BASE_IDS = [4, 30, 56, 82, 108, 134, 160, 186, 212, 238];
+const NHC_LAYER_OFFSET = {
+  forecastPoints: 2,
+  forecastTrack: 3,
+  forecastCone: 4,
+  pastTrack: 8,
+};
+
+async function fetchNhcLayer<T extends import("geojson").Geometry>(layerId: number): Promise<import("geojson").FeatureCollection<T> | null> {
+  try {
+    const res = await fetch(`${NHC_MAPSERVER}/${layerId}/query?where=1=1&outFields=*&f=geojson`);
+    if (!res.ok) return null;
+    return await res.json();
+  } catch {
+    return null;
+  }
+}
+
+async function fetchActiveCyclones(): Promise<ActiveCyclone[]> {
+  const pointResults = await Promise.all(
+    NHC_BASIN_SLOT_BASE_IDS.map((base) =>
+      fetchNhcLayer<import("geojson").Point>(base + NHC_LAYER_OFFSET.forecastPoints)
+    )
+  );
+
+  const activeSlots = NHC_BASIN_SLOT_BASE_IDS
+    .map((base, i) => ({ base, points: pointResults[i] }))
+    .filter((slot): slot is { base: number; points: NonNullable<typeof slot.points> } =>
+      !!slot.points && slot.points.features.length > 0
+    );
+
+  return Promise.all(
+    activeSlots.map(async ({ base, points }) => {
+      const [track, cone, pastTrack] = await Promise.all([
+        fetchNhcLayer<import("geojson").LineString>(base + NHC_LAYER_OFFSET.forecastTrack),
+        fetchNhcLayer<import("geojson").Polygon>(base + NHC_LAYER_OFFSET.forecastCone),
+        fetchNhcLayer<import("geojson").LineString>(base + NHC_LAYER_OFFSET.pastTrack),
+      ]);
+      const firstProps = points.features[0]?.properties as NhcForecastPointProperties | undefined;
+      return {
+        binnumber: firstProps?.binnumber ?? String(base),
+        name: firstProps?.stormname ?? "Sistema sin nombre",
+        points: points as ActiveCyclone["points"],
+        track,
+        cone,
+        pastTrack,
+      };
+    })
+  );
+}
+
+function cycloneColor(maxwindKt: number): string {
+  if (maxwindKt >= 137) return "#d946ef";
+  if (maxwindKt >= 113) return "#ef4444";
+  if (maxwindKt >= 96) return "#f97316";
+  if (maxwindKt >= 83) return "#fb923c";
+  if (maxwindKt >= 64) return "#facc15";
+  if (maxwindKt >= 34) return "#4ade80";
+  return "#93c5fd";
+}
+
+function cycloneCategoryLabel(maxwindKt: number): string {
+  if (maxwindKt >= 137) return "Categoría 5";
+  if (maxwindKt >= 113) return "Categoría 4";
+  if (maxwindKt >= 96) return "Categoría 3 (mayor)";
+  if (maxwindKt >= 83) return "Categoría 2";
+  if (maxwindKt >= 64) return "Categoría 1";
+  if (maxwindKt >= 34) return "Tormenta tropical";
+  return "Depresión tropical";
+}
+
+const ktToKmh = (kt: number) => Math.round(kt * 1.852);
+
+function buildCyclonePopupContent(p: NhcForecastPointProperties): HTMLDivElement {
+  const color = cycloneColor(p.maxwind);
+  const category = cycloneCategoryLabel(p.maxwind);
+  const isCurrent = p.tau === 0;
+
+  const root = mkEl("div", "font-family:'Inter',monospace;min-width:220px;background:#09090b;border-radius:10px;overflow:hidden;border:1px solid #27272a");
+
+  const header = mkEl("div", `background:${color};padding:8px 12px`);
+  header.append(
+    mkEl("div", "font-size:13px;font-weight:800;color:#09090b", p.stormname),
+    mkEl("div", "font-size:10px;font-weight:600;color:#09090b;opacity:0.8", category)
+  );
+
+  const body = mkEl("div", "padding:8px 10px");
+  body.appendChild(
+    mkEl(
+      "div",
+      "font-size:10px;color:#a1a1aa;margin-bottom:6px",
+      isCurrent ? `Posición actual · ${p.datelbl}` : `Pronóstico +${p.tau} h · ${p.datelbl}`
+    )
+  );
+
+  const grid = mkEl("div", "display:grid;grid-template-columns:1fr 1fr;gap:4px");
+  grid.append(
+    statCard("Viento sostenido", "font-size:14px;font-weight:700;color:#facc15", `${ktToKmh(p.maxwind)} km/h`, `Ráfagas ${ktToKmh(p.gust)} km/h`),
+    statCard("Presión", "font-size:14px;font-weight:700;color:#a78bfa", p.mslp !== 9999 ? `${p.mslp} hPa` : "N/D", "")
+  );
+  if (isCurrent && p.tcdir !== 9999) {
+    grid.appendChild(
+      statCard("Movimiento", "font-size:12px;font-weight:700;color:#60a5fa", `${windDirToArrow(p.tcdir)} ${p.tcdir}°`, p.tcspd !== 9999 ? `${ktToKmh(p.tcspd)} km/h` : "")
+    );
+  }
+  body.appendChild(grid);
+
+  const footer = mkEl("div", "padding:4px 12px 8px;font-size:9px;color:#3f3f46;text-align:right", "NOAA National Hurricane Center");
+
+  root.append(header, body, footer);
+  return root;
+}
+
 type LeafletInstance = typeof import("leaflet");
 type LeafletMap = import("leaflet").Map;
 type LeafletLayerGroup = import("leaflet").LayerGroup;
@@ -504,6 +691,8 @@ interface MapPrefs {
   opacity: number;
   showWeather: boolean;
   showQuakes: boolean;
+  showPlates: boolean;
+  showCyclones: boolean;
   quakeRangeDays: QuakeRangeDays;
 }
 
@@ -579,14 +768,30 @@ export default function GoesMap() {
   const LRef = useRef<LeafletInstance | null>(null);
   const weatherLayerGroupRef = useRef<LeafletLayerGroup | null>(null);
   const quakeLayerGroupRef = useRef<LeafletLayerGroup | null>(null);
+  const plateLayerGroupRef = useRef<LeafletLayerGroup | null>(null);
+  const cycloneLayerGroupRef = useRef<LeafletLayerGroup | null>(null);
   const userLocationMarkerRef = useRef<LeafletCircleMarker | null>(null);
   const [activeLayer, setActiveLayer] = useState<GoesLayer>(GOES_LAYERS[0]);
   const [goesOpacity, setGoesOpacity] = useState(GOES_LAYERS[0].opacity);
   const [isLoading, setIsLoading] = useState(true);
   const [lastUpdate, setLastUpdate] = useState("");
   const [mounted, setMounted] = useState(false);
+  // Leaflet se importa de forma dinámica (async) dentro del efecto de
+  // inicialización, así que `mapInstanceRef.current` todavía es null por un
+  // instante después de que `mounted` pasa a true. Las capas de clima,
+  // sismos y placas necesitan saber cuándo el mapa ya existe de verdad
+  // (no solo cuándo el componente montó) para no intentar dibujarse contra
+  // un mapa inexistente y quedarse así — algo que sí pasaba, por ejemplo,
+  // con un usuario recurrente que vuelve con una capa activada desde
+  // localStorage.
+  const [mapReady, setMapReady] = useState(false);
   const [showWeather, setShowWeather] = useState(false);
   const [showQuakes, setShowQuakes] = useState(false);
+  const [showPlates, setShowPlates] = useState(false);
+  const [plateError, setPlateError] = useState<string | null>(null);
+  const [showCyclones, setShowCyclones] = useState(false);
+  const [cyclones, setCyclones] = useState<ActiveCyclone[]>([]);
+  const [cycloneError, setCycloneError] = useState<string | null>(null);
   const [quakeRangeDays, setQuakeRangeDays] = useState<QuakeRangeDays>(7);
   const [quakes, setQuakes] = useState<NormalizedQuake[]>([]);
   const [quakeError, setQuakeError] = useState<string | null>(null);
@@ -711,6 +916,8 @@ export default function GoesMap() {
     }
     if (prefs.showWeather) setShowWeather(true);
     if (prefs.showQuakes) setShowQuakes(true);
+    if (prefs.showPlates) setShowPlates(true);
+    if (prefs.showCyclones) setShowCyclones(true);
     if (prefs.quakeRangeDays) setQuakeRangeDays(prefs.quakeRangeDays);
     prefsHydratedRef.current = true;
     /* eslint-enable react-hooks/set-state-in-effect */
@@ -723,9 +930,11 @@ export default function GoesMap() {
       opacity: goesOpacity,
       showWeather,
       showQuakes,
+      showPlates,
+      showCyclones,
       quakeRangeDays,
     });
-  }, [mounted, activeLayer, goesOpacity, showWeather, showQuakes, quakeRangeDays]);
+  }, [mounted, activeLayer, goesOpacity, showWeather, showQuakes, showPlates, showCyclones, quakeRangeDays]);
 
   useEffect(() => {
     if (!mounted) return;
@@ -889,6 +1098,9 @@ export default function GoesMap() {
         new LocateControl().addTo(map);
         weatherLayerGroupRef.current = L.layerGroup().addTo(map);
         quakeLayerGroupRef.current = L.layerGroup().addTo(map);
+        plateLayerGroupRef.current = L.layerGroup().addTo(map);
+        cycloneLayerGroupRef.current = L.layerGroup().addTo(map);
+        setMapReady(true);
       } catch (error) {
         console.error("Error al inicializar el mapa:", error);
         setMapError("No se pudo cargar el mapa satelital. Verifica tu conexión a internet.");
@@ -904,7 +1116,10 @@ export default function GoesMap() {
         goesLayerRef.current = null;
         weatherLayerGroupRef.current = null;
         quakeLayerGroupRef.current = null;
+        plateLayerGroupRef.current = null;
+        cycloneLayerGroupRef.current = null;
         userLocationMarkerRef.current = null;
+        setMapReady(false);
       }
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -1009,7 +1224,7 @@ export default function GoesMap() {
 
       group.addLayer(marker);
     });
-  }, [showWeather, mounted]);
+  }, [showWeather, mapReady]);
 
   useEffect(() => {
     const map = mapInstanceRef.current;
@@ -1035,13 +1250,22 @@ export default function GoesMap() {
 
         merged.forEach((q) => {
           const color = quakeColor(q.mag);
-          const marker = L.circleMarker([q.lat, q.lon], {
-            radius: quakeRadius(q.mag),
-            color,
-            fillColor: color,
-            fillOpacity: 0.55,
-            weight: 1.5,
+          const { width, height } = quakeBadgeSize(q.mag);
+          const magLabel = q.mag != null ? q.mag.toFixed(1) : "N/D";
+          // Insignia rectangular (no circleMarker) para que sismos y
+          // ciclones nunca se confundan visualmente cuando ambas capas
+          // están activas a la vez, y para poder mostrar la magnitud
+          // como texto legible. Esto es un divIcon (DOM), no un layer de
+          // canvas: con cientos de sismos a la vez (ej. una secuencia de
+          // réplicas en 30 días) esto pesa más que el circleMarker
+          // anterior, que sí corría en <canvas> vía `preferCanvas`.
+          const icon = L.divIcon({
+            className: "",
+            html: `<div style="width:${width}px;height:${height}px;background:${color};border:1.5px solid rgba(9,9,11,0.5);border-radius:6px;display:flex;align-items:center;justify-content:center;box-shadow:0 1px 4px rgba(0,0,0,0.5)"><span style="font-family:monospace;font-weight:800;font-size:${width >= 36 ? 12 : 10}px;color:#09090b;line-height:1">${magLabel}</span></div>`,
+            iconSize: [width, height],
+            iconAnchor: [width / 2, height / 2],
           });
+          const marker = L.marker([q.lat, q.lon], { icon });
           const popupContent = buildQuakePopupContent(q, () => {
             map.setView([q.lat, q.lon], 11);
             marker.closePopup();
@@ -1061,7 +1285,124 @@ export default function GoesMap() {
     return () => {
       cancelled = true;
     };
-  }, [showQuakes, mounted, refreshTick, quakeRangeDays]);
+  }, [showQuakes, mapReady, refreshTick, quakeRangeDays]);
+
+  useEffect(() => {
+    const map = mapInstanceRef.current;
+    const L = LRef.current;
+    const group = plateLayerGroupRef.current;
+    if (!map || !L || !group) return;
+
+    group.clearLayers();
+    map.attributionControl.removeAttribution(PLATE_BOUNDARIES_ATTRIBUTION);
+    if (!showPlates) return;
+
+    let cancelled = false;
+
+    (async () => {
+      try {
+        const plates = await fetchTectonicPlates();
+        if (cancelled) return;
+        setPlateError(null);
+
+        const geoJsonLayer = L.geoJSON(plates, {
+          style: (feature) => {
+            const isSubduction = feature?.properties?.Type === "subduction";
+            return {
+              color: isSubduction ? "#f97316" : "#eab308",
+              weight: isSubduction ? 2.5 : 1.5,
+              opacity: 0.8,
+              dashArray: isSubduction ? undefined : "6 4",
+            };
+          },
+          onEachFeature: (feature, layer) => {
+            const { PlateA, PlateB, Type } = feature.properties as PlateBoundaryProperties;
+            const kind = Type === "subduction" ? "Subducción (zona de mayor riesgo sísmico)" : "Límite de placa";
+            layer.bindTooltip(`${PlateA} – ${PlateB}<br>${kind}`, { sticky: true, className: "plate-tooltip" });
+          },
+        });
+
+        group.addLayer(geoJsonLayer);
+        map.attributionControl.addAttribution(PLATE_BOUNDARIES_ATTRIBUTION);
+      } catch {
+        if (!cancelled) setPlateError("No se pudieron cargar los límites de placas tectónicas.");
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [showPlates, mapReady]);
+
+  useEffect(() => {
+    const map = mapInstanceRef.current;
+    const L = LRef.current;
+    const group = cycloneLayerGroupRef.current;
+    if (!map || !L || !group) return;
+
+    group.clearLayers();
+    if (!showCyclones) return;
+
+    let cancelled = false;
+
+    (async () => {
+      try {
+        const active = await fetchActiveCyclones();
+        if (cancelled) return;
+        setCycloneError(null);
+        setCyclones(active);
+
+        active.forEach((storm) => {
+          if (storm.pastTrack) {
+            group.addLayer(
+              L.geoJSON(storm.pastTrack, {
+                style: { color: "#f4f4f5", weight: 1.5, opacity: 0.45, dashArray: "2 4" },
+              })
+            );
+          }
+          if (storm.cone) {
+            group.addLayer(
+              L.geoJSON(storm.cone, {
+                style: { color: "#e4e4e7", weight: 1, opacity: 0.5, fillColor: "#e4e4e7", fillOpacity: 0.1 },
+              })
+            );
+          }
+          if (storm.track) {
+            group.addLayer(
+              L.geoJSON(storm.track, {
+                style: { color: "#f4f4f5", weight: 1.5, opacity: 0.7, dashArray: "4 3" },
+              })
+            );
+          }
+          storm.points.features.forEach((f) => {
+            const props = f.properties as NhcForecastPointProperties;
+            const [lon, lat] = f.geometry.coordinates;
+            const color = cycloneColor(props.maxwind);
+            const isCurrent = props.tau === 0;
+            const marker = L.circleMarker([lat, lon], {
+              radius: isCurrent ? 9 : 5,
+              color,
+              fillColor: color,
+              fillOpacity: isCurrent ? 0.85 : 0.5,
+              weight: isCurrent ? 2 : 1,
+            });
+            marker.bindPopup(buildCyclonePopupContent(props), {
+              className: "weather-popup",
+              closeButton: false,
+              maxWidth: 260,
+            });
+            group.addLayer(marker);
+          });
+        });
+      } catch {
+        if (!cancelled) setCycloneError("No se pudieron cargar los ciclones activos del NHC.");
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [showCyclones, mapReady, refreshTick]);
 
   const latestQuake = useMemo(() => {
     if (quakes.length === 0) return null;
@@ -1088,119 +1429,147 @@ export default function GoesMap() {
     );
   }
 
-  const activeCount = [showWeather, showQuakes].filter(Boolean).length;
+  const activeCount = [showWeather, showQuakes, showPlates, showCyclones].filter(Boolean).length;
 
   return (
     <div ref={rootRef} className="flex flex-col flex-grow min-h-0 bg-zinc-950">
-      <div className="bg-zinc-900/90 backdrop-blur-sm border-b border-zinc-800 px-4 py-3 flex flex-wrap items-center gap-2 flex-shrink-0">
-        <div className="flex items-center gap-1.5 flex-wrap">
-          <span className="text-zinc-400 text-xs font-mono uppercase tracking-wider mr-1">Canal:</span>
-          {GOES_LAYERS.map((layer) => (
+      <div className="bg-zinc-900/90 backdrop-blur-sm border-b border-zinc-800 flex-shrink-0 divide-y divide-zinc-800/60">
+        {/* Fila 1: canal satelital activo, su opacidad y el estado de carga */}
+        <div className="px-4 py-2.5 flex flex-wrap items-center gap-x-3 gap-y-2">
+          <span className="text-zinc-500 text-[10px] font-mono uppercase tracking-wider w-14 flex-shrink-0">Canal</span>
+          <div className="flex items-center gap-1.5 flex-wrap">
+            {GOES_LAYERS.map((layer) => (
+              <button
+                key={layer.id}
+                onClick={() => { setActiveLayer(layer); setGoesOpacity(layer.opacity); }}
+                title={layer.tip}
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-mono transition-all ${activeLayer.id === layer.id
+                    ? "bg-cyan-600 text-white border border-cyan-500 shadow-lg shadow-cyan-900/30"
+                    : "bg-zinc-800 text-zinc-400 border border-zinc-700 hover:border-zinc-500 hover:text-zinc-200"
+                  }`}
+              >
+                <span>{layer.icon}</span>
+                {layer.label}
+              </button>
+            ))}
+          </div>
+
+          <div className="flex items-center gap-2 ml-0 sm:ml-2">
+            <span className="text-zinc-500 text-[10px] font-mono uppercase tracking-wider hidden sm:inline">Opacidad</span>
+            <input
+              type="range"
+              min={0.1}
+              max={1}
+              step={0.05}
+              value={goesOpacity}
+              onChange={(e) => setGoesOpacity(parseFloat(e.target.value))}
+              title="Opacidad de la capa satelital"
+              className="w-16 sm:w-20 accent-cyan-500"
+            />
+            <span className="text-zinc-500 text-[10px] font-mono w-8">{Math.round(goesOpacity * 100)}%</span>
+          </div>
+
+          <div className="ml-auto flex items-center gap-2">
+            {isLoading ? (
+              <span className="flex items-center gap-1.5 text-amber-400 text-xs font-mono">
+                <span className="w-2 h-2 bg-amber-400 rounded-full animate-pulse inline-block" />
+                Cargando...
+              </span>
+            ) : (
+              <span className="flex items-center gap-1.5 text-green-400 text-xs font-mono">
+                <span className="w-2 h-2 bg-green-400 rounded-full animate-pulse inline-block" />
+                GOES LIVE
+              </span>
+            )}
+          </div>
+        </div>
+
+        {/* Fila 2: capas superpuestas (clima, sismos, placas) y compartir */}
+        <div className="px-4 py-2.5 flex flex-wrap items-center gap-x-3 gap-y-2">
+          <span className="text-zinc-500 text-[10px] font-mono uppercase tracking-wider w-14 flex-shrink-0">Capas</span>
+          <div className="flex items-center gap-1.5 flex-wrap">
             <button
-              key={layer.id}
-              onClick={() => { setActiveLayer(layer); setGoesOpacity(layer.opacity); }}
-              title={layer.tip}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-mono transition-all ${activeLayer.id === layer.id
-                  ? "bg-cyan-600 text-white border border-cyan-500 shadow-lg shadow-cyan-900/30"
-                  : "bg-zinc-800 text-zinc-400 border border-zinc-700 hover:border-zinc-500 hover:text-zinc-200"
+              onClick={() => setShowWeather((v) => !v)}
+              title={showWeather ? "Ocultar clima" : "Mostrar clima por ciudad"}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-mono border transition-all ${showWeather
+                  ? "bg-emerald-600 text-white border-emerald-500 shadow-lg shadow-emerald-900/30 ring-1 ring-emerald-400/30"
+                  : "bg-zinc-800 text-zinc-400 border-zinc-700 hover:border-zinc-500 hover:text-zinc-200"
                 }`}
             >
-              <span>{layer.icon}</span>
-              {layer.label}
+              <span>🌡️</span>
+              Clima
             </button>
-          ))}
-        </div>
 
-        <span className="w-px h-6 bg-zinc-700 hidden sm:block" />
+            <button
+              onClick={() => setShowQuakes((v) => !v)}
+              title={showQuakes ? "Ocultar sismos" : "Mostrar sismos recientes (USGS + IGC-UP)"}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-mono border transition-all ${showQuakes
+                  ? "bg-red-600 text-white border-red-500 shadow-lg shadow-red-900/30 ring-1 ring-red-400/30"
+                  : "bg-zinc-800 text-zinc-400 border-zinc-700 hover:border-zinc-500 hover:text-zinc-200"
+                }`}
+            >
+              <span>🌍</span>
+              Sismos
+            </button>
 
-        <div className="flex items-center gap-1.5 flex-wrap">
+            {showQuakes && (
+              <div className="flex items-center gap-0.5 bg-zinc-800 border border-zinc-700 rounded-lg p-0.5">
+                {QUAKE_RANGES.map((r) => (
+                  <button
+                    key={r.days}
+                    onClick={() => setQuakeRangeDays(r.days)}
+                    className={`px-2 py-1 rounded text-[10px] font-mono transition-all ${quakeRangeDays === r.days
+                        ? "bg-red-600 text-white"
+                        : "text-zinc-400 hover:text-zinc-200"
+                      }`}
+                  >
+                    {r.label}
+                  </button>
+                ))}
+              </div>
+            )}
+
+            <button
+              onClick={() => setShowPlates((v) => !v)}
+              title={showPlates ? "Ocultar límites de placas tectónicas" : "Mostrar límites de placas tectónicas (modelo PB2002)"}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-mono border transition-all ${showPlates
+                  ? "bg-amber-600 text-white border-amber-500 shadow-lg shadow-amber-900/30 ring-1 ring-amber-400/30"
+                  : "bg-zinc-800 text-zinc-400 border-zinc-700 hover:border-zinc-500 hover:text-zinc-200"
+                }`}
+            >
+              <span>🧭</span>
+              Placas
+            </button>
+
+            <button
+              onClick={() => setShowCyclones((v) => !v)}
+              title={showCyclones ? "Ocultar ciclones tropicales" : "Mostrar ciclones tropicales activos (NOAA NHC)"}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-mono border transition-all ${showCyclones
+                  ? "bg-purple-600 text-white border-purple-500 shadow-lg shadow-purple-900/30 ring-1 ring-purple-400/30"
+                  : "bg-zinc-800 text-zinc-400 border-zinc-700 hover:border-zinc-500 hover:text-zinc-200"
+                }`}
+            >
+              <span>🌀</span>
+              Ciclones
+            </button>
+          </div>
+
           <button
-            onClick={() => setShowWeather((v) => !v)}
-            title={showWeather ? "Ocultar clima" : "Mostrar clima por ciudad"}
-            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-mono border transition-all ${showWeather
-                ? "bg-emerald-600 text-white border-emerald-500 shadow-lg shadow-emerald-900/30 ring-1 ring-emerald-400/30"
-                : "bg-zinc-800 text-zinc-400 border-zinc-700 hover:border-zinc-500 hover:text-zinc-200"
-              }`}
+            onClick={() => {
+              navigator.clipboard
+                .writeText(window.location.href)
+                .then(() => {
+                  setShareCopied(true);
+                  setTimeout(() => setShareCopied(false), 2000);
+                })
+                .catch(() => {});
+            }}
+            title="Copiar enlace a esta vista del mapa"
+            className="ml-auto flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-mono border transition-all bg-zinc-800 text-zinc-400 border-zinc-700 hover:border-zinc-500 hover:text-zinc-200"
           >
-            <span>🌡️</span>
-            Clima
+            <span>{shareCopied ? "✅" : "🔗"}</span>
+            {shareCopied ? "¡Copiado!" : "Compartir"}
           </button>
-
-          <button
-            onClick={() => setShowQuakes((v) => !v)}
-            title={showQuakes ? "Ocultar sismos" : "Mostrar sismos recientes (USGS + IGC-UP)"}
-            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-mono border transition-all ${showQuakes
-                ? "bg-red-600 text-white border-red-500 shadow-lg shadow-red-900/30 ring-1 ring-red-400/30"
-                : "bg-zinc-800 text-zinc-400 border-zinc-700 hover:border-zinc-500 hover:text-zinc-200"
-              }`}
-          >
-            <span>🌍</span>
-            Sismos
-          </button>
-
-          {showQuakes && (
-            <div className="flex items-center gap-0.5 bg-zinc-800 border border-zinc-700 rounded-lg p-0.5">
-              {QUAKE_RANGES.map((r) => (
-                <button
-                  key={r.days}
-                  onClick={() => setQuakeRangeDays(r.days)}
-                  className={`px-2 py-1 rounded text-[10px] font-mono transition-all ${quakeRangeDays === r.days
-                      ? "bg-red-600 text-white"
-                      : "text-zinc-400 hover:text-zinc-200"
-                    }`}
-                >
-                  {r.label}
-                </button>
-              ))}
-            </div>
-          )}
-        </div>
-
-        <span className="w-px h-6 bg-zinc-700 hidden sm:block" />
-
-        <button
-          onClick={() => {
-            navigator.clipboard
-              .writeText(window.location.href)
-              .then(() => {
-                setShareCopied(true);
-                setTimeout(() => setShareCopied(false), 2000);
-              })
-              .catch(() => {});
-          }}
-          title="Copiar enlace a esta vista del mapa"
-          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-mono border transition-all bg-zinc-800 text-zinc-400 border-zinc-700 hover:border-zinc-500 hover:text-zinc-200"
-        >
-          <span>{shareCopied ? "✅" : "🔗"}</span>
-          {shareCopied ? "¡Copiado!" : "Compartir"}
-        </button>
-
-        <div className="flex items-center gap-2 ml-auto">
-          <span className="text-zinc-400 text-xs font-mono hidden sm:inline">Opac:</span>
-          <input
-            type="range"
-            min={0.1}
-            max={1}
-            step={0.05}
-            value={goesOpacity}
-            onChange={(e) => setGoesOpacity(parseFloat(e.target.value))}
-            className="w-16 sm:w-20 accent-cyan-500"
-          />
-          <span className="text-zinc-400 text-xs font-mono w-8">{Math.round(goesOpacity * 100)}%</span>
-        </div>
-
-        <div className="flex items-center gap-2">
-          {isLoading ? (
-            <span className="flex items-center gap-1.5 text-amber-400 text-xs font-mono">
-              <span className="w-2 h-2 bg-amber-400 rounded-full animate-pulse inline-block" />
-              Cargando...
-            </span>
-          ) : (
-            <span className="flex items-center gap-1.5 text-green-400 text-xs font-mono">
-              <span className="w-2 h-2 bg-green-400 rounded-full animate-pulse inline-block" />
-              GOES LIVE
-            </span>
-          )}
         </div>
       </div>
 
@@ -1230,6 +1599,34 @@ export default function GoesMap() {
                 <span className="text-red-400 text-[11px] font-mono">{quakeError}</span>
               </div>
             )}
+            {showPlates && (
+              <div className="bg-amber-950/90 border border-amber-700 rounded-lg px-3 py-1.5 pointer-events-none">
+                <span className="text-amber-400 text-[11px] font-mono flex items-center gap-1.5">
+                  <span className="w-1.5 h-1.5 bg-amber-400 rounded-full animate-pulse inline-block" />
+                  Límites de placas tectónicas
+                </span>
+              </div>
+            )}
+            {showPlates && plateError && (
+              <div className="bg-amber-950/90 border border-amber-800 rounded-lg px-3 py-1.5 pointer-events-none">
+                <span className="text-amber-400 text-[11px] font-mono">{plateError}</span>
+              </div>
+            )}
+            {showCyclones && (
+              <div className="bg-purple-950/90 border border-purple-700 rounded-lg px-3 py-1.5 pointer-events-none">
+                <span className="text-purple-300 text-[11px] font-mono flex items-center gap-1.5">
+                  <span className="w-1.5 h-1.5 bg-purple-400 rounded-full animate-pulse inline-block" />
+                  {cyclones.length > 0
+                    ? `${cyclones.length} ciclón(es) activo(s): ${cyclones.map((c) => c.name.replace(/^(Hurricane|Tropical Storm|Tropical Depression)\s+/i, "")).join(", ")}`
+                    : "Sin ciclones activos en Atlántico/Pacífico oriental"}
+                </span>
+              </div>
+            )}
+            {showCyclones && cycloneError && (
+              <div className="bg-purple-950/90 border border-purple-800 rounded-lg px-3 py-1.5 pointer-events-none">
+                <span className="text-purple-300 text-[11px] font-mono">{cycloneError}</span>
+              </div>
+            )}
             {locateError && (
               <div className="bg-amber-950/90 border border-amber-800 rounded-lg px-3 py-1.5">
                 <span className="text-amber-400 text-[11px] font-mono flex items-center justify-between gap-2">
@@ -1241,15 +1638,45 @@ export default function GoesMap() {
           </div>
         )}
 
-        {showQuakes && (
-          <div className="absolute top-3 right-3 z-[999] bg-zinc-950/90 border border-zinc-700 rounded-lg px-3 py-2">
-            <div className="text-[9px] font-mono text-zinc-500 uppercase tracking-wider mb-1.5">Magnitud</div>
-            <div className="flex flex-col gap-1 text-[10px] font-mono text-zinc-400">
-              <span className="flex items-center gap-1.5"><span className="w-2 h-2 rounded-full inline-block" style={{ background: "#4ade80" }} /> &lt; 3</span>
-              <span className="flex items-center gap-1.5"><span className="w-2 h-2 rounded-full inline-block" style={{ background: "#facc15" }} /> 3 – 4.5</span>
-              <span className="flex items-center gap-1.5"><span className="w-2 h-2 rounded-full inline-block" style={{ background: "#f97316" }} /> 4.5 – 6</span>
-              <span className="flex items-center gap-1.5"><span className="w-2 h-2 rounded-full inline-block" style={{ background: "#ef4444" }} /> ≥ 6</span>
-            </div>
+        {(showQuakes || showPlates || showCyclones) && (
+          <div className="absolute top-3 right-3 z-[999] bg-zinc-950/90 border border-zinc-700 rounded-lg px-3 py-2 flex flex-col divide-y divide-zinc-800">
+            {showQuakes && (
+              <div className={showPlates || showCyclones ? "pb-2" : ""}>
+                <div className="text-[9px] font-mono text-zinc-500 uppercase tracking-wider mb-1.5">Magnitud</div>
+                <div className="flex flex-col gap-1 text-[10px] font-mono text-zinc-400">
+                  <span className="flex items-center gap-1.5"><span className="w-2 h-2 rounded-full inline-block" style={{ background: "#4ade80" }} /> &lt; 3</span>
+                  <span className="flex items-center gap-1.5"><span className="w-2 h-2 rounded-full inline-block" style={{ background: "#facc15" }} /> 3 – 4.5</span>
+                  <span className="flex items-center gap-1.5"><span className="w-2 h-2 rounded-full inline-block" style={{ background: "#f97316" }} /> 4.5 – 6</span>
+                  <span className="flex items-center gap-1.5"><span className="w-2 h-2 rounded-full inline-block" style={{ background: "#ef4444" }} /> ≥ 6</span>
+                </div>
+              </div>
+            )}
+            {showPlates && (
+              <div className={`${showQuakes ? "pt-2" : ""} ${showCyclones ? "pb-2" : ""}`}>
+                <div className="text-[9px] font-mono text-zinc-500 uppercase tracking-wider mb-1.5">Placas</div>
+                <div className="flex flex-col gap-1 text-[10px] font-mono text-zinc-400">
+                  <span className="flex items-center gap-1.5"><span className="w-3 h-0.5 inline-block" style={{ background: "#f97316" }} /> Subducción</span>
+                  <span className="flex items-center gap-1.5">
+                    <span className="w-3 h-0.5 inline-block" style={{ background: "repeating-linear-gradient(90deg,#eab308 0 3px,transparent 3px 5px)" }} />
+                    Otro límite
+                  </span>
+                </div>
+              </div>
+            )}
+            {showCyclones && (
+              <div className={showQuakes || showPlates ? "pt-2" : ""}>
+                <div className="text-[9px] font-mono text-zinc-500 uppercase tracking-wider mb-1.5">Ciclones (viento)</div>
+                <div className="flex flex-col gap-1 text-[10px] font-mono text-zinc-400">
+                  <span className="flex items-center gap-1.5"><span className="w-2 h-2 rounded-full inline-block" style={{ background: "#93c5fd" }} /> Depresión</span>
+                  <span className="flex items-center gap-1.5"><span className="w-2 h-2 rounded-full inline-block" style={{ background: "#4ade80" }} /> T. tropical</span>
+                  <span className="flex items-center gap-1.5"><span className="w-2 h-2 rounded-full inline-block" style={{ background: "#facc15" }} /> Cat. 1</span>
+                  <span className="flex items-center gap-1.5"><span className="w-2 h-2 rounded-full inline-block" style={{ background: "#fb923c" }} /> Cat. 2</span>
+                  <span className="flex items-center gap-1.5"><span className="w-2 h-2 rounded-full inline-block" style={{ background: "#f97316" }} /> Cat. 3</span>
+                  <span className="flex items-center gap-1.5"><span className="w-2 h-2 rounded-full inline-block" style={{ background: "#ef4444" }} /> Cat. 4</span>
+                  <span className="flex items-center gap-1.5"><span className="w-2 h-2 rounded-full inline-block" style={{ background: "#d946ef" }} /> Cat. 5</span>
+                </div>
+              </div>
+            )}
           </div>
         )}
 
