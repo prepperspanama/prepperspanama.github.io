@@ -103,10 +103,6 @@ body {
   }
 }
 
-@keyframes shimmer {
-  0%   { background-position: -200% center; }
-  100% { background-position: 200% center; }
-}
 
 .animate-fade-in-up {
   animation: fadeInUp 0.6s ease-out both;
@@ -137,7 +133,15 @@ body {
 .delay-600 { animation-delay: 600ms; }
 .delay-700 { animation-delay: 700ms; }
 
-/* Shimmer text effect */
+/* Shimmer text effect: static gradient (was an animated background-position
+   sweep). Lighthouse flagged that animation as non-composited because
+   `background-clip: text` disqualifies the browser's compositor fast path
+   for background-position, forcing a full repaint every frame. A
+   transform-based replacement (moving highlight blended on top) was tried
+   but leaks a visible rectangular edge wherever the page behind the text
+   isn't pure black -- this hero has a cyan glow blur behind the heading, so
+   the leak was visible. Static gradient keeps the look with zero repaint
+   cost instead. */
 .text-shimmer {
   background: linear-gradient(
     90deg,
@@ -150,7 +154,6 @@ body {
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
   background-clip: text;
-  animation: shimmer 3s linear infinite;
 }
 
 /* Glow effects */
@@ -182,6 +185,21 @@ body {
 
 .weather-popup .leaflet-popup-tip-container {
   display: none;
+}
+
+.plate-tooltip {
+  background: #09090b !important;
+  border: 1px solid #27272a !important;
+  color: #e4e4e7 !important;
+  font-family: monospace !important;
+  font-size: 10px !important;
+  padding: 4px 8px !important;
+  border-radius: 6px !important;
+  box-shadow: 0 4px 16px rgba(0,0,0,0.5) !important;
+}
+
+.plate-tooltip::before {
+  border-top-color: #27272a !important;
 }
 
 /* ─────────────────────────────────────────
@@ -409,9 +427,6 @@ body {
   .tactical-mode::after {
     animation: none !important;
     opacity: 0 !important;
-  }
-  .tactical-mode .text-shimmer {
-    animation: none !important;
   }
 }
 
