@@ -52,6 +52,23 @@ export const metadata: Metadata = {
   },
 };
 
+// La CSP estricta (hashes de script en vez de 'unsafe-inline') solo tiene
+// sentido contra el HTML ya generado por `next build` + `scripts/harden-csp.mjs`.
+// En `next dev` ese script nunca corre -- Next sirve el layout directo y,
+// además, el propio dev server (Fast Refresh, HMR) inyecta sus propios
+// scripts en línea que cambian en cada guardado, así que no hay hash fijo
+// que pinnear. Sin esta rama, el placeholder `__CSP_SCRIPT_HASHES__` queda
+// sin reemplazar, el navegador lo descarta por inválido, y script-src se
+// queda sin 'unsafe-inline' ni hashes válidos: bloquea la hidratación
+// entera y el sitio no carga en local.
+const isProductionBuild = process.env.NODE_ENV === "production";
+const CSP_SCRIPT_SRC = isProductionBuild
+  ? "script-src 'self' https://cloud.umami.is __CSP_SCRIPT_HASHES__;"
+  // 'unsafe-eval' only here: React dev mode uses eval() to reconstruct
+  // stack traces across environments (Fast Refresh, component stacks).
+  // Production builds don't eval, so the prod policy above omits it.
+  : "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://cloud.umami.is;";
+
 export default function RootLayout({
   children,
 }: Readonly<{
@@ -75,19 +92,21 @@ export default function RootLayout({
             Same applies to HSTS, COOP and X-Frame-Options: none of them have
             a meta-tag form, so they can't be shipped from this static host
             at all.
-          - script-src has no `'unsafe-inline'`. There's no server to mint
-            per-request nonces for Next's hydration/RSC payload scripts, so
-            `scripts/harden-csp.mjs` (run after `next build`) computes a
-            SHA-256 hash per inline <script> on each generated page and
-            substitutes them for the `__CSP_SCRIPT_HASHES__` token below.
-            The JSON-LD <script type="application/ld+json"> tags don't need
-            hashes: that type isn't classified as a script by CSP, so
-            script-src never governs them. `unsafe-eval` is NOT needed
-            (production builds don't eval) and has been removed.
+          - In production, script-src has no `'unsafe-inline'`. There's no
+            server to mint per-request nonces for Next's hydration/RSC
+            payload scripts, so `scripts/harden-csp.mjs` (run after
+            `next build`) computes a SHA-256 hash per inline <script> on
+            each generated page and substitutes them for the
+            `CSP_SCRIPT_SRC` placeholder below (see its definition for why
+            `next dev` needs a different, looser policy). The JSON-LD
+            <script type="application/ld+json"> tags don't need hashes:
+            that type isn't classified as a script by CSP, so script-src
+            never governs them. `unsafe-eval` is NOT needed (production
+            builds don't eval) and has been removed.
         */}
         <meta
           httpEquiv="Content-Security-Policy"
-          content="default-src 'self'; script-src 'self' https://cloud.umami.is __CSP_SCRIPT_HASHES__; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https://server.arcgisonline.com https://nowcoast.noaa.gov https://unpkg.com https://satellitemaps.nesdis.noaa.gov; font-src 'self' data:; connect-src 'self' https://api.open-meteo.com https://earthquake.usgs.gov https://cloud.umami.is https://gateway.umami.is; object-src 'none'; base-uri 'self'; frame-src 'none'; frame-ancestors 'none'; form-action 'self';"
+          content={`default-src 'self'; ${CSP_SCRIPT_SRC} style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https://server.arcgisonline.com https://nowcoast.noaa.gov https://unpkg.com https://satellitemaps.nesdis.noaa.gov; font-src 'self' data:; connect-src 'self' https://api.open-meteo.com https://earthquake.usgs.gov https://mapservices.weather.noaa.gov https://cloud.umami.is https://gateway.umami.is; object-src 'none'; base-uri 'self'; frame-src 'none'; frame-ancestors 'none'; form-action 'self';`}
         />
         <meta name="referrer" content="strict-origin-when-cross-origin" />
         <link rel="alternate" type="application/rss+xml" title={`${SITE_NAME} — RSS`} href="/rss.xml" />
