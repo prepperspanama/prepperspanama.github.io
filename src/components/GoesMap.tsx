@@ -104,9 +104,14 @@ interface PlateBoundaryProperties {
   Type: string;
 }
 
+type FaultFamily = "inversa" | "rumbo" | "normal" | "otra" | "geologica";
+
 interface FaultProperties {
-  name: string | null;
-  slip_type: string | null;
+  nombre: string | null;
+  tipo: string;
+  familia: FaultFamily;
+  // gem: GEM Global Active Faults · mgp: Mapa Geológico de Panamá (1990)
+  fuente: "gem" | "mgp";
 }
 
 interface NhcForecastPointProperties {
@@ -443,10 +448,12 @@ type FaultCollection = import("geojson").FeatureCollection<
   FaultProperties
 >;
 
-// Fallas activas de Panamá recortadas de la GEM Global Active Faults Database
-// (ver scripts/fetch-panama-faults.mjs). Igual que las placas: dataset de
+// Fallas de Panamá de dos fuentes (ver scripts/fetch-panama-faults.mjs):
+// las activas de la GEM Global Active Faults Database y las del Mapa
+// Geológico de Panamá 1:250.000 de 1990. Igual que las placas: dataset de
 // referencia horneado en public/ y cacheado en memoria.
-const FAULTS_ATTRIBUTION = "Fallas activas: GEM Global Active Faults (CC BY-SA 4.0)";
+const FAULTS_ATTRIBUTION =
+  "Fallas: GEM Global Active Faults y Mapa Geológico de Panamá 1990 vía STRI (CC BY-SA 4.0)";
 let faultsCache: Promise<FaultCollection> | null = null;
 
 async function fetchPanamaFaults(): Promise<FaultCollection> {
@@ -464,39 +471,18 @@ async function fetchPanamaFaults(): Promise<FaultCollection> {
   return faultsCache;
 }
 
-// Agrupa la cinemática de GEM (Reverse, Dextral_Transform, Sinistral-Normal…)
-// en las tres familias que muestra la leyenda.
-type FaultKind = "inversa" | "rumbo" | "normal" | "otra";
-
-const FAULT_STYLES: Record<FaultKind, { color: string; label: string }> = {
-  inversa: { color: "#f43f5e", label: "Inversa" },
-  rumbo: { color: "#22d3ee", label: "De rumbo" },
-  normal: { color: "#a3e635", label: "Normal" },
-  otra: { color: "#a1a1aa", label: "Sin clasificar" },
+const FAULT_STYLES: Record<FaultFamily, { color: string; label: string }> = {
+  inversa: { color: "#f43f5e", label: "Activa · inversa" },
+  rumbo: { color: "#22d3ee", label: "Activa · de rumbo" },
+  normal: { color: "#a3e635", label: "Activa · normal" },
+  otra: { color: "#e4e4e7", label: "Activa · sin clasificar" },
+  geologica: { color: "#a8a29e", label: "Mapa geológico 1990" },
 };
 
-function faultKind(slipType: string | null): FaultKind {
-  const main = slipType?.split(/[-_]/)[0];
-  if (main === "Reverse") return "inversa";
-  if (main === "Dextral" || main === "Sinistral") return "rumbo";
-  if (main === "Normal") return "normal";
-  return "otra";
-}
-
-const SLIP_TERMS: Record<string, string> = {
-  Reverse: "inversa",
-  Normal: "normal",
-  Dextral: "dextral",
-  Sinistral: "sinestral",
-  Transform: "transformante",
+const FAULT_SOURCES: Record<FaultProperties["fuente"], string> = {
+  gem: "Falla activa · GEM Global Active Faults",
+  mgp: "Mapa Geológico de Panamá 1:250.000 (1990) · actividad no confirmada",
 };
-
-function describeSlip(slipType: string | null): string {
-  if (!slipType) return "Cinemática desconocida";
-  const terms = slipType.split(/[-_]/).map((t) => SLIP_TERMS[t] ?? t.toLowerCase());
-  const text = terms.join("-");
-  return text.charAt(0).toUpperCase() + text.slice(1);
-}
 
 const DEDUPE_TIME_MS = 5 * 60 * 1000;
 const DEDUPE_DIST_KM = 50;
@@ -1425,18 +1411,27 @@ export default function GoesMap() {
         if (cancelled) return;
         setFaultError(null);
 
+        // Son ~2.000 trazas: en canvas el mapa sigue fluido al hacer zoom,
+        // donde con SVG cada una sería un nodo del DOM.
+        const renderer = L.canvas({ padding: 0.5 });
         const geoJsonLayer = L.geoJSON(faults, {
-          style: (feature) => ({
-            color: FAULT_STYLES[faultKind(feature?.properties?.slip_type ?? null)].color,
-            weight: 2,
-            opacity: 0.85,
-          }),
+          style: (feature) => {
+            const familia = (feature?.properties as FaultProperties | undefined)?.familia ?? "otra";
+            const isGeologic = familia === "geologica";
+            return {
+              renderer,
+              color: FAULT_STYLES[familia].color,
+              weight: isGeologic ? 1 : 2,
+              opacity: isGeologic ? 0.55 : 0.9,
+              dashArray: isGeologic ? "4 3" : undefined,
+            };
+          },
           onEachFeature: (feature, layer) => {
-            const { name, slip_type } = feature.properties as FaultProperties;
-            layer.bindTooltip(`${name ?? "Falla sin nombre"}<br>${describeSlip(slip_type)}`, {
-              sticky: true,
-              className: "plate-tooltip",
-            });
+            const { nombre, tipo, fuente } = feature.properties as FaultProperties;
+            layer.bindTooltip(
+              `${nombre ?? "Falla sin nombre"}<br>${tipo}<br><span style="opacity:.7">${FAULT_SOURCES[fuente]}<br>Ubicación aproximada (escala regional)</span>`,
+              { sticky: true, className: "plate-tooltip" },
+            );
           },
         });
 
@@ -1661,7 +1656,7 @@ export default function GoesMap() {
 
             <button
               onClick={() => setShowFaults((v) => !v)}
-              title={showFaults ? "Ocultar fallas geológicas" : "Mostrar fallas geológicas activas de Panamá (GEM)"}
+              title={showFaults ? "Ocultar fallas geológicas" : "Mostrar fallas geológicas de Panamá (GEM y Mapa Geológico 1990). Trazas aproximadas: no sirven para evaluar un terreno"}
               className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-mono border transition-all ${showFaults
                   ? "bg-rose-600 text-white border-rose-500 shadow-lg shadow-rose-900/30 ring-1 ring-rose-400/30"
                   : "bg-zinc-800 text-zinc-400 border-zinc-700 hover:border-zinc-500 hover:text-zinc-200"
@@ -1746,8 +1741,9 @@ export default function GoesMap() {
               <div className="bg-rose-950/90 border border-rose-700 rounded-lg px-3 py-1.5 pointer-events-none">
                 <span className="text-rose-400 text-[11px] font-mono flex items-center gap-1.5">
                   <span className="w-1.5 h-1.5 bg-rose-400 rounded-full animate-pulse inline-block" />
-                  Fallas geológicas activas
+                  Fallas geológicas · trazas aproximadas
                 </span>
+                <span className="block text-rose-300/70 text-[10px] font-mono mt-0.5">Escala regional: no sirve para ubicar un terreno</span>
               </div>
             )}
             {showFaults && faultError && (
@@ -1810,9 +1806,9 @@ export default function GoesMap() {
               <div className={`${showQuakes || showPlates ? "pt-2" : ""} ${showCyclones ? "pb-2" : ""}`}>
                 <div className="text-[9px] font-mono text-zinc-500 uppercase tracking-wider mb-1.5">Fallas</div>
                 <div className="flex flex-col gap-1 text-[10px] font-mono text-zinc-400">
-                  {Object.values(FAULT_STYLES).map(({ color, label }) => (
+                  {Object.entries(FAULT_STYLES).map(([familia, { color, label }]) => (
                     <span key={label} className="flex items-center gap-1.5">
-                      <span className="w-3 h-0.5 inline-block" style={{ background: color }} /> {label}
+                      <span className="w-3 h-0.5 inline-block" style={{ background: familia === "geologica" ? `repeating-linear-gradient(90deg,${color} 0 3px,transparent 3px 5px)` : color }} /> {label}
                     </span>
                   ))}
                 </div>
