@@ -104,6 +104,11 @@ interface PlateBoundaryProperties {
   Type: string;
 }
 
+interface FaultProperties {
+  name: string | null;
+  slip_type: string | null;
+}
+
 interface NhcForecastPointProperties {
   stormname: string;
   stormtype: string;
@@ -433,6 +438,66 @@ async function fetchTectonicPlates(): Promise<PlateBoundaryCollection> {
   return platesCache;
 }
 
+type FaultCollection = import("geojson").FeatureCollection<
+  import("geojson").MultiLineString,
+  FaultProperties
+>;
+
+// Fallas activas de Panamá recortadas de la GEM Global Active Faults Database
+// (ver scripts/fetch-panama-faults.mjs). Igual que las placas: dataset de
+// referencia horneado en public/ y cacheado en memoria.
+const FAULTS_ATTRIBUTION = "Fallas activas: GEM Global Active Faults (CC BY-SA 4.0)";
+let faultsCache: Promise<FaultCollection> | null = null;
+
+async function fetchPanamaFaults(): Promise<FaultCollection> {
+  if (!faultsCache) {
+    faultsCache = fetch("/panama-faults.json")
+      .then((res) => {
+        if (!res.ok) throw new Error("Error al obtener fallas geológicas");
+        return res.json();
+      })
+      .catch((err) => {
+        faultsCache = null;
+        throw err;
+      });
+  }
+  return faultsCache;
+}
+
+// Agrupa la cinemática de GEM (Reverse, Dextral_Transform, Sinistral-Normal…)
+// en las tres familias que muestra la leyenda.
+type FaultKind = "inversa" | "rumbo" | "normal" | "otra";
+
+const FAULT_STYLES: Record<FaultKind, { color: string; label: string }> = {
+  inversa: { color: "#f43f5e", label: "Inversa" },
+  rumbo: { color: "#22d3ee", label: "De rumbo" },
+  normal: { color: "#a3e635", label: "Normal" },
+  otra: { color: "#a1a1aa", label: "Sin clasificar" },
+};
+
+function faultKind(slipType: string | null): FaultKind {
+  const main = slipType?.split(/[-_]/)[0];
+  if (main === "Reverse") return "inversa";
+  if (main === "Dextral" || main === "Sinistral") return "rumbo";
+  if (main === "Normal") return "normal";
+  return "otra";
+}
+
+const SLIP_TERMS: Record<string, string> = {
+  Reverse: "inversa",
+  Normal: "normal",
+  Dextral: "dextral",
+  Sinistral: "sinestral",
+  Transform: "transformante",
+};
+
+function describeSlip(slipType: string | null): string {
+  if (!slipType) return "Cinemática desconocida";
+  const terms = slipType.split(/[-_]/).map((t) => SLIP_TERMS[t] ?? t.toLowerCase());
+  const text = terms.join("-");
+  return text.charAt(0).toUpperCase() + text.slice(1);
+}
+
 const DEDUPE_TIME_MS = 5 * 60 * 1000;
 const DEDUPE_DIST_KM = 50;
 
@@ -692,6 +757,7 @@ interface MapPrefs {
   showWeather: boolean;
   showQuakes: boolean;
   showPlates: boolean;
+  showFaults: boolean;
   showCyclones: boolean;
   quakeRangeDays: QuakeRangeDays;
 }
@@ -769,6 +835,7 @@ export default function GoesMap() {
   const weatherLayerGroupRef = useRef<LeafletLayerGroup | null>(null);
   const quakeLayerGroupRef = useRef<LeafletLayerGroup | null>(null);
   const plateLayerGroupRef = useRef<LeafletLayerGroup | null>(null);
+  const faultLayerGroupRef = useRef<LeafletLayerGroup | null>(null);
   const cycloneLayerGroupRef = useRef<LeafletLayerGroup | null>(null);
   const userLocationMarkerRef = useRef<LeafletCircleMarker | null>(null);
   const [activeLayer, setActiveLayer] = useState<GoesLayer>(GOES_LAYERS[0]);
@@ -789,6 +856,8 @@ export default function GoesMap() {
   const [showQuakes, setShowQuakes] = useState(false);
   const [showPlates, setShowPlates] = useState(false);
   const [plateError, setPlateError] = useState<string | null>(null);
+  const [showFaults, setShowFaults] = useState(false);
+  const [faultError, setFaultError] = useState<string | null>(null);
   const [showCyclones, setShowCyclones] = useState(false);
   const [cyclones, setCyclones] = useState<ActiveCyclone[]>([]);
   const [cycloneError, setCycloneError] = useState<string | null>(null);
@@ -917,6 +986,7 @@ export default function GoesMap() {
     if (prefs.showWeather) setShowWeather(true);
     if (prefs.showQuakes) setShowQuakes(true);
     if (prefs.showPlates) setShowPlates(true);
+    if (prefs.showFaults) setShowFaults(true);
     if (prefs.showCyclones) setShowCyclones(true);
     if (prefs.quakeRangeDays) setQuakeRangeDays(prefs.quakeRangeDays);
     prefsHydratedRef.current = true;
@@ -931,10 +1001,11 @@ export default function GoesMap() {
       showWeather,
       showQuakes,
       showPlates,
+      showFaults,
       showCyclones,
       quakeRangeDays,
     });
-  }, [mounted, activeLayer, goesOpacity, showWeather, showQuakes, showPlates, showCyclones, quakeRangeDays]);
+  }, [mounted, activeLayer, goesOpacity, showWeather, showQuakes, showPlates, showFaults, showCyclones, quakeRangeDays]);
 
   useEffect(() => {
     if (!mounted) return;
@@ -1099,6 +1170,7 @@ export default function GoesMap() {
         weatherLayerGroupRef.current = L.layerGroup().addTo(map);
         quakeLayerGroupRef.current = L.layerGroup().addTo(map);
         plateLayerGroupRef.current = L.layerGroup().addTo(map);
+        faultLayerGroupRef.current = L.layerGroup().addTo(map);
         cycloneLayerGroupRef.current = L.layerGroup().addTo(map);
         setMapReady(true);
       } catch (error) {
@@ -1117,6 +1189,7 @@ export default function GoesMap() {
         weatherLayerGroupRef.current = null;
         quakeLayerGroupRef.current = null;
         plateLayerGroupRef.current = null;
+        faultLayerGroupRef.current = null;
         cycloneLayerGroupRef.current = null;
         userLocationMarkerRef.current = null;
         setMapReady(false);
@@ -1337,6 +1410,51 @@ export default function GoesMap() {
   useEffect(() => {
     const map = mapInstanceRef.current;
     const L = LRef.current;
+    const group = faultLayerGroupRef.current;
+    if (!map || !L || !group) return;
+
+    group.clearLayers();
+    map.attributionControl.removeAttribution(FAULTS_ATTRIBUTION);
+    if (!showFaults) return;
+
+    let cancelled = false;
+
+    (async () => {
+      try {
+        const faults = await fetchPanamaFaults();
+        if (cancelled) return;
+        setFaultError(null);
+
+        const geoJsonLayer = L.geoJSON(faults, {
+          style: (feature) => ({
+            color: FAULT_STYLES[faultKind(feature?.properties?.slip_type ?? null)].color,
+            weight: 2,
+            opacity: 0.85,
+          }),
+          onEachFeature: (feature, layer) => {
+            const { name, slip_type } = feature.properties as FaultProperties;
+            layer.bindTooltip(`${name ?? "Falla sin nombre"}<br>${describeSlip(slip_type)}`, {
+              sticky: true,
+              className: "plate-tooltip",
+            });
+          },
+        });
+
+        group.addLayer(geoJsonLayer);
+        map.attributionControl.addAttribution(FAULTS_ATTRIBUTION);
+      } catch {
+        if (!cancelled) setFaultError("No se pudieron cargar las fallas geológicas.");
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [showFaults, mapReady]);
+
+  useEffect(() => {
+    const map = mapInstanceRef.current;
+    const L = LRef.current;
     const group = cycloneLayerGroupRef.current;
     if (!map || !L || !group) return;
 
@@ -1429,7 +1547,7 @@ export default function GoesMap() {
     );
   }
 
-  const activeCount = [showWeather, showQuakes, showPlates, showCyclones].filter(Boolean).length;
+  const activeCount = [showWeather, showQuakes, showPlates, showFaults, showCyclones].filter(Boolean).length;
 
   return (
     <div ref={rootRef} className="flex flex-col flex-grow min-h-0 bg-zinc-950">
@@ -1484,7 +1602,7 @@ export default function GoesMap() {
           </div>
         </div>
 
-        {/* Fila 2: capas superpuestas (clima, sismos, placas) y compartir */}
+        {/* Fila 2: capas superpuestas (clima, sismos, placas, fallas) y compartir */}
         <div className="px-4 py-2.5 flex flex-wrap items-center gap-x-3 gap-y-2">
           <span className="text-zinc-500 text-[10px] font-mono uppercase tracking-wider w-14 flex-shrink-0">Capas</span>
           <div className="flex items-center gap-1.5 flex-wrap">
@@ -1539,6 +1657,18 @@ export default function GoesMap() {
             >
               <span>🧭</span>
               Placas
+            </button>
+
+            <button
+              onClick={() => setShowFaults((v) => !v)}
+              title={showFaults ? "Ocultar fallas geológicas" : "Mostrar fallas geológicas activas de Panamá (GEM)"}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-mono border transition-all ${showFaults
+                  ? "bg-rose-600 text-white border-rose-500 shadow-lg shadow-rose-900/30 ring-1 ring-rose-400/30"
+                  : "bg-zinc-800 text-zinc-400 border-zinc-700 hover:border-zinc-500 hover:text-zinc-200"
+                }`}
+            >
+              <span>〰️</span>
+              Fallas
             </button>
 
             <button
@@ -1612,6 +1742,19 @@ export default function GoesMap() {
                 <span className="text-amber-400 text-[11px] font-mono">{plateError}</span>
               </div>
             )}
+            {showFaults && (
+              <div className="bg-rose-950/90 border border-rose-700 rounded-lg px-3 py-1.5 pointer-events-none">
+                <span className="text-rose-400 text-[11px] font-mono flex items-center gap-1.5">
+                  <span className="w-1.5 h-1.5 bg-rose-400 rounded-full animate-pulse inline-block" />
+                  Fallas geológicas activas
+                </span>
+              </div>
+            )}
+            {showFaults && faultError && (
+              <div className="bg-rose-950/90 border border-rose-800 rounded-lg px-3 py-1.5 pointer-events-none">
+                <span className="text-rose-400 text-[11px] font-mono">{faultError}</span>
+              </div>
+            )}
             {showCyclones && (
               <div className="bg-purple-950/90 border border-purple-700 rounded-lg px-3 py-1.5 pointer-events-none">
                 <span className="text-purple-300 text-[11px] font-mono flex items-center gap-1.5">
@@ -1638,10 +1781,10 @@ export default function GoesMap() {
           </div>
         )}
 
-        {(showQuakes || showPlates || showCyclones) && (
+        {(showQuakes || showPlates || showFaults || showCyclones) && (
           <div className="absolute top-3 right-3 z-[999] bg-zinc-950/90 border border-zinc-700 rounded-lg px-3 py-2 flex flex-col divide-y divide-zinc-800">
             {showQuakes && (
-              <div className={showPlates || showCyclones ? "pb-2" : ""}>
+              <div className={showPlates || showFaults || showCyclones ? "pb-2" : ""}>
                 <div className="text-[9px] font-mono text-zinc-500 uppercase tracking-wider mb-1.5">Magnitud</div>
                 <div className="flex flex-col gap-1 text-[10px] font-mono text-zinc-400">
                   <span className="flex items-center gap-1.5"><span className="w-2 h-2 rounded-full inline-block" style={{ background: "#4ade80" }} /> &lt; 3</span>
@@ -1652,7 +1795,7 @@ export default function GoesMap() {
               </div>
             )}
             {showPlates && (
-              <div className={`${showQuakes ? "pt-2" : ""} ${showCyclones ? "pb-2" : ""}`}>
+              <div className={`${showQuakes ? "pt-2" : ""} ${showFaults || showCyclones ? "pb-2" : ""}`}>
                 <div className="text-[9px] font-mono text-zinc-500 uppercase tracking-wider mb-1.5">Placas</div>
                 <div className="flex flex-col gap-1 text-[10px] font-mono text-zinc-400">
                   <span className="flex items-center gap-1.5"><span className="w-3 h-0.5 inline-block" style={{ background: "#f97316" }} /> Subducción</span>
@@ -1663,8 +1806,20 @@ export default function GoesMap() {
                 </div>
               </div>
             )}
+            {showFaults && (
+              <div className={`${showQuakes || showPlates ? "pt-2" : ""} ${showCyclones ? "pb-2" : ""}`}>
+                <div className="text-[9px] font-mono text-zinc-500 uppercase tracking-wider mb-1.5">Fallas</div>
+                <div className="flex flex-col gap-1 text-[10px] font-mono text-zinc-400">
+                  {Object.values(FAULT_STYLES).map(({ color, label }) => (
+                    <span key={label} className="flex items-center gap-1.5">
+                      <span className="w-3 h-0.5 inline-block" style={{ background: color }} /> {label}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            )}
             {showCyclones && (
-              <div className={showQuakes || showPlates ? "pt-2" : ""}>
+              <div className={showQuakes || showPlates || showFaults ? "pt-2" : ""}>
                 <div className="text-[9px] font-mono text-zinc-500 uppercase tracking-wider mb-1.5">Ciclones (viento)</div>
                 <div className="flex flex-col gap-1 text-[10px] font-mono text-zinc-400">
                   <span className="flex items-center gap-1.5"><span className="w-2 h-2 rounded-full inline-block" style={{ background: "#93c5fd" }} /> Depresión</span>
