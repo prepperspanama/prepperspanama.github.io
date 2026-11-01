@@ -8,7 +8,7 @@ const eslintConfig = defineConfig([
   {
     settings: {
       react: {
-        version: "19.2.6",
+        version: "19.3.1",
       },
     },
   },
