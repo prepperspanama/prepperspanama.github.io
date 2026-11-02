@@ -10,6 +10,7 @@ export const metadata: Metadata = {
 };
 
 import MapContainer from "./MapContainer";
+import MapGeneratorContainer from "./MapGeneratorContainer";
 
 export default function MapaPage() {
   return (
@@ -37,9 +38,13 @@ export default function MapaPage() {
         </div>
       </div>
 
-      <MapContainer />
+      {/* Altura fija: con el generador debajo, flex-grow ya no tendría
+          espacio sobrante que repartir y el mapa GOES quedaría en cero. */}
+      <div className="h-[85vh] min-h-[560px] flex flex-col">
+        <MapContainer />
+      </div>
 
-
+      <MapGeneratorContainer />
     </div>
   );
 }

@@ -202,6 +202,22 @@ body {
   border-top-color: #27272a !important;
 }
 
+/* Rótulos fijos del generador de mapas (provincias, capitales) */
+.mapgen-label {
+  background: transparent !important;
+  border: none !important;
+  box-shadow: none !important;
+  padding: 0 4px !important;
+  color: #1f2933 !important;
+  font-size: 11px !important;
+  font-weight: 600 !important;
+  text-shadow: 0 0 3px #fff, 0 0 3px #fff, 0 0 3px #fff;
+}
+
+.mapgen-label::before {
+  display: none !important;
+}
+
 /* ─────────────────────────────────────────
    Prose (MDX) improvements
    ───────────────────────────────────────── */

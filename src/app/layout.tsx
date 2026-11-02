@@ -106,7 +106,7 @@ export default function RootLayout({
         */}
         <meta
           httpEquiv="Content-Security-Policy"
-          content={`default-src 'self'; ${CSP_SCRIPT_SRC} style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https://server.arcgisonline.com https://nowcoast.noaa.gov https://unpkg.com https://satellitemaps.nesdis.noaa.gov; font-src 'self' data:; connect-src 'self' https://api.open-meteo.com https://earthquake.usgs.gov https://mapservices.weather.noaa.gov https://cloud.umami.is https://gateway.umami.is; object-src 'none'; base-uri 'self'; frame-src 'none'; frame-ancestors 'none'; form-action 'self';`}
+          content={`default-src 'self'; ${CSP_SCRIPT_SRC} style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https://server.arcgisonline.com https://nowcoast.noaa.gov https://unpkg.com https://satellitemaps.nesdis.noaa.gov; font-src 'self' data:; connect-src 'self' https://services2.arcgis.com https://overpass-api.de https://api.open-meteo.com https://earthquake.usgs.gov https://mapservices.weather.noaa.gov https://cloud.umami.is https://gateway.umami.is; object-src 'none'; base-uri 'self'; frame-src 'none'; frame-ancestors 'none'; form-action 'self';`}
         />
         <meta name="referrer" content="strict-origin-when-cross-origin" />
         <link rel="alternate" type="application/rss+xml" title={`${SITE_NAME} — RSS`} href="/rss.xml" />
